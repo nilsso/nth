@@ -1,7 +1,12 @@
 """CLI utility for nth."""
 import argparse
+import logging
+import os
 import readline  # type: ignore
 from contextlib import suppress
+
+import rich.logging
+from rich import print
 
 import nth
 
@@ -36,6 +41,7 @@ def run_check(args: argparse.Namespace):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("-v", dest="verbose", action="count", default=0)
 
     subparsers = parser.add_subparsers()
 
@@ -99,7 +105,11 @@ if __name__ == "__main__":
         help="Don't perform ordinal replacement.",
     )
 
-    rollyear = 2021
-
     args = parser.parse_args()
+    log_level = max(0, logging.INFO - 10 * args.verbose)
+    logging.basicConfig(
+        level=log_level,
+        format="(%(pathname)s:%(lineno)d)\n%(message)s",
+        handlers=[rich.logging.RichHandler()],
+    )
     args.func(args)

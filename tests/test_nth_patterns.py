@@ -75,13 +75,10 @@ def _test_pattern(
     pattern: typing.Pattern[str],
 ):
     m = pattern.fullmatch(n)
-    print(n)
-    print(pattern)
-    print(m, expected)
     assert (m is not None) == expected
 
 
-_ONES_P = _pattern(nth.DIGIT_ORDINAL_ONES)
+_ONES_P = _pattern(nth.DECIMAL_ORDINAL_ONES)
 _ONES_PARAMS = _params(*_ns_params(1), "st")
 
 
@@ -91,7 +88,7 @@ def test_ones(n: str, expected: bool):
     _test_pattern(n, expected, _ONES_P)
 
 
-_TWOS_P = _pattern(nth.DIGIT_ORDINAL_TWOS)
+_TWOS_P = _pattern(nth.DECIMAL_ORDINAL_TWOS)
 _TWOS_PARAMS = _params(*_ns_params(2), "nd")
 
 
@@ -101,7 +98,7 @@ def test_twos(n: str, expected: bool):
     _test_pattern(n, expected, _TWOS_P)
 
 
-_THREES_P = _pattern(nth.DIGIT_ORDINAL_THREES)
+_THREES_P = _pattern(nth.DECIMAL_ORDINAL_THREES)
 _THREES_PARAMS = _params(*_ns_params(3), "rd")
 
 
@@ -130,7 +127,7 @@ def _range(
     return range(start + lshift, start + rshift)
 
 
-_TEENS_P = _pattern(nth.DIGIT_ORDINAL_TEENS)
+_TEENS_P = _pattern(nth.DECIMAL_ORDINAL_TEENS)
 _TEENS_PARAMS = _params(
     [
         n
@@ -159,7 +156,7 @@ def test_teens(n: str, expected: bool):
     _test_pattern(n, expected, _TEENS_P)
 
 
-_OTHERWISE_P = _pattern(nth.DIGIT_ORDINAL_OTHERWISE)
+_OTHERWISE_P = _pattern(nth.DECIMAL_ORDINAL_OTHERWISE)
 _OTHERWISE_PARAMS = _params(
     [
         n
@@ -260,7 +257,7 @@ STRICT_PARAMS = _strict_params(
 @pytest.mark.parametrize("n,expected", STRICT_PARAMS)
 def test_strict(n: str, expected: bool):
     """Test full ordinal strict pattern."""
-    _test_pattern(n, expected, nth.DIGIT_ORDINAL_STRICT_P)
+    _test_pattern(n, expected, nth.DECIMAL_ORDINAL_STRICT_P)
 
 
 # TODO:

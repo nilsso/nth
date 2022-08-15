@@ -19,6 +19,7 @@ from __future__ import annotations
 import enum
 import itertools
 import logging
+import operator
 import os
 import re
 import typing
@@ -34,18 +35,13 @@ from .lookups import (
     PERIOD_TO_INT,
 )
 
-DEFAULT_LOG_LEVEL = "WARNING"
-
-log_level_str = os.environ.get("NTH_LEVEL", DEFAULT_LOG_LEVEL)
-if log_level_str.isdecimal():
-    log_level = int(log_level_str)
-else:
-    log_level = logging.getLevelName(log_level_str)
-
-logging.basicConfig(
-    level=log_level,
-)
 logger = logging.getLogger(__name__)
+if (log_level_str := os.environ.get("NTH_LEVEL")) is not None:
+    if log_level_str.isdecimal():
+        log_level = int(log_level_str)
+    else:
+        log_level = logging.getLevelName(log_level_str)
+    logger.setLevel(log_level)
 
 
 class Period(typing.NamedTuple):
@@ -183,6 +179,14 @@ def int_to_digit_ordinal(n: int) -> str:
 
 
 DECIMAL_ORDINAL_NONSTRICT_P = re.compile(r"\b(\d+)(ST|ND|RD|TH)\b", re.IGNORECASE)
+
+
+def fix_decimal_ordinal(s: str) -> str:
+    if m := DECIMAL_ORDINAL_NONSTRICT_P.fullmatch(s):
+        n = int(m.group(1))
+        suffix = _ordinal_suffix(n)
+        return f"{n}{suffix}"
+    return s
 
 
 def is_decimal_ordinal(s: str, strict: bool = False) -> bool:
@@ -481,7 +485,7 @@ def _parse_number_parts(
     kind = _PartsKind.CARDINAL
     stack: typing.List[int] = list()
     for part in parts:
-        logger.debug(f"part {part} {stack=}")
+        logger.log(0, f"part {part} {stack=}")
         if part.period:
             p = 1000**part
             f = sum(stack)
@@ -535,13 +539,19 @@ class DecimalizeParams:
         ordinal_bounds: Numbers are terminated by ordinal suffixes.
     """
 
+    correct_suffixes: bool = True
+
     strict_periods: bool = True
     strict_hundreds: bool = True
+
     # TODO: implement take_and/ignore_and usage
     take_and: bool = True
     ignore_and: bool = False
+    # TODO: do something with take_digits
     take_digits: bool = True
+
     ordinal_bounds: bool = True
+
     cardinal: bool = True
     cardinal_improper: bool = True
     ordinal: bool = True
@@ -571,7 +581,7 @@ def _decimalize_sub(
         params.take_and,
         params.take_digits,
     ):
-        logger.debug(parts)
+        logger.log(0, parts)
         for n, k in _parse_number_parts(
             parts,
             params.strict_periods,
@@ -604,23 +614,21 @@ def decimalize(
     params: DecimalizeParams | None = None,
 ) -> str:
     """Convert ordinal/cardinal numbers in string input to decimal form."""
+    _n = operator.itemgetter(0)
+
     params = params or DecimalizeParams()
-    number_parts: typing.List[str] = list()
+    result_parts: typing.List[str] = list()
     i = 0
-    spans = _iter_number_spans(s, params.take_and)
-    for span_l, span_r in spans:
+    for span_l, span_r in _iter_number_spans(s, params.take_and):
         w = s[span_l:span_r]
-        logger.debug(f"number span {(w, (i, span_l))}")
-        t = s[i:span_l]
-        if t != "":
-            number_parts.append(t)
-        for n, k in _intersperse(_decimalize_sub(w, params), (" ", None)):
-            logger.debug((n, k))
-            number_parts.append(n)
+        logger.log(0, f"number span {(w, (i, span_l))}")
+        if (t := s[i:span_l]) != "":
+            result_parts.append(t)
+        result_parts.extend(_intersperse(map(_n, _decimalize_sub(w, params)), " "))
         i = span_r
-    t = s[i:]
-    if t != "":
-        logger.debug((t, t == ""))
-        number_parts.append(t)
-    logger.debug(f"{number_parts=}")
-    return "".join(number_parts)
+    if (t := s[i:]) != "":
+        result_parts.append(t)
+    s = "".join(result_parts)
+    if not params.correct_suffixes:
+        return s
+    return " ".join(map(fix_decimal_ordinal, s.split()))

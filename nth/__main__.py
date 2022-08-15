@@ -3,11 +3,11 @@ import argparse
 import readline  # type: ignore
 from contextlib import suppress
 
-from . import DecimalizeParams, decimalize
+import nth
 
 
 def run_decimalize(args: argparse.Namespace):
-    params = DecimalizeParams(
+    params = nth.DecimalizeParams(
         strict_periods=not args.not_strict_periods,
         strict_hundreds=not args.not_strict_hundreds,
         take_and=not args.no_and,
@@ -20,13 +20,27 @@ def run_decimalize(args: argparse.Namespace):
 
     with suppress(KeyboardInterrupt, EOFError):
         while line := input():
-            print(f'"{decimalize(line, params)}"')
+            print(f'"{nth.decimalize(line, params)}"')
+
+
+def run_check(args: argparse.Namespace):
+    with suppress(KeyboardInterrupt, EOFError):
+        while line := input():
+            print(f'line: "{line}"')
+            for m, f in [
+                ("      is decimal ordinal:", nth.is_decimal_ordinal),
+                ("contains decimal ordinal:", nth.contains_decimal_ordinal),
+            ]:
+                print(m, f(line))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     subparsers = parser.add_subparsers()
+
+    check_parser = subparsers.add_parser("check")
+    check_parser.set_defaults(func=run_check)
 
     decimalize_parser = subparsers.add_parser("dec")
     decimalize_parser.set_defaults(func=run_decimalize)

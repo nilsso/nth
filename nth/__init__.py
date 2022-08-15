@@ -163,39 +163,71 @@ def int_to_ordinal(n: int) -> str:
     return " ".join(itertools.chain(map(str, periods), (ordinal_period.to_ordinal(),)))
 
 
-def int_to_digit_ordinal(n: int) -> str:
-    """Concert integer to ordinal digit form."""
-    dd = n % 100
-    if 10 < dd < 20:
-        return f"{n}TH"
+def _ordinal_suffix(n: int) -> typing.Optional[str]:
+    if 10 < (n % 100) < 20:
+        return "TH"
     d = n % 10
     if d == 1:
-        return f"{n}ST"
+        return "ST"
     elif d == 2:
-        return f"{n}ND"
+        return "ND"
     elif d == 3:
-        return f"{n}RD"
+        return "RD"
     else:
-        return f"{n}TH"
+        return "TH"
 
 
-DIGIT_ORDINAL_NONSTRICT_P = re.compile(r"(\d+)(?:ST|ND|RD|TH)", re.IGNORECASE)
+def int_to_digit_ordinal(n: int) -> str:
+    suffix = _ordinal_suffix(n)
+    return f"{n}{suffix}"
+
+
+DECIMAL_ORDINAL_NONSTRICT_P = re.compile(r"\b(\d+)(ST|ND|RD|TH)\b", re.IGNORECASE)
+
+
+def is_decimal_ordinal(s: str, strict: bool = False) -> bool:
+    """Is string a decimal-ordinal number?
+
+    True examples:
+    - "123RD"
+    - "123TH" only if strict=True
+
+    False examples:
+    - "ONE HUNDRED TWENTY-THIRD" this is word-ordinal, not decimal-ordinal
+    """
+    if m := DECIMAL_ORDINAL_NONSTRICT_P.fullmatch(s):
+        if not strict:
+            return True
+        n, suffix = typing.cast(tuple[str, str], m.groups())
+        return _ordinal_suffix(int(n)) == suffix
+    return False
+
+
+def contains_decimal_ordinal(s: str, strict: bool = False) -> bool:
+    """Does strint contain any decimal-ordinal words?"""
+    return any(
+        map(
+            lambda w: is_decimal_ordinal(w, strict),
+            map(re.Match[str].group, re.finditer(r"\S+", s)),
+        )
+    )
+
 
 # strict patterns for matching digit ordinals
-DIGIT_ORDINAL_ONES = r"(?<!1)1ST"
-DIGIT_ORDINAL_TWOS = r"(?<!1)2ND"
-DIGIT_ORDINAL_THREES = r"(?<!1)3RD"
-DIGIT_ORDINAL_TEENS = r"1[1-9]TH"
-DIGIT_ORDINAL_OTHERWISE = r"(?:(?:10)|(?:(?<!1)[04-9]))TH"
-DIGIT_ORDINAL_PATTERNS = [
-    DIGIT_ORDINAL_ONES,
-    DIGIT_ORDINAL_TWOS,
-    DIGIT_ORDINAL_THREES,
-    DIGIT_ORDINAL_TEENS,
-    DIGIT_ORDINAL_OTHERWISE,
+DECIMAL_ORDINAL_ONES = r"(?<!1)1ST"
+DECIMAL_ORDINAL_TWOS = r"(?<!1)2ND"
+DECIMAL_ORDINAL_THREES = r"(?<!1)3RD"
+DECIMAL_ORDINAL_TEENS = r"1[1-9]TH"
+DECIMAL_ORDINAL_OTHERWISE = r"(?:(?:10)|(?:(?<!1)[04-9]))TH"
+DECIMAL_ORDINAL_PATTERNS = [
+    DECIMAL_ORDINAL_ONES,
+    DECIMAL_ORDINAL_TWOS,
+    DECIMAL_ORDINAL_THREES,
+    DECIMAL_ORDINAL_TEENS,
+    DECIMAL_ORDINAL_OTHERWISE,
 ]
-DIGIT_ORDINAL_STRICT_P = re.compile(
-    rf"\d*(?:{'|'.join(DIGIT_ORDINAL_PATTERNS)})",
+DECIMAL_ORDINAL_STRICT_P = re.compile(
+    rf"\d*(?:{'|'.join(DECIMAL_ORDINAL_PATTERNS)})",
     re.IGNORECASE,
 )
 
@@ -213,9 +245,9 @@ def try_normalize_ordinal(s: str, strict: bool = False) -> typing.Optional[str]:
     then None is returned.
     """
     if strict:
-        if DIGIT_ORDINAL_STRICT_P.fullmatch(s):
+        if DECIMAL_ORDINAL_STRICT_P.fullmatch(s):
             return int_to_ordinal(int(s[:-2]))
-    elif DIGIT_ORDINAL_NONSTRICT_P.fullmatch(s):
+    elif DECIMAL_ORDINAL_NONSTRICT_P.fullmatch(s):
         return int_to_ordinal(int(s[:-2]))
 
 
@@ -224,24 +256,6 @@ def try_ordinalize(s: str, strict: bool = False) -> typing.Optional[str]:
     if s.isdecimal():
         return int_to_ordinal(int(s))
     return try_normalize_ordinal(s, strict)
-
-
-def _is_ordinal(s: str) -> bool:
-    return s in ORDINAL_TO_INT
-
-
-def _ordinal_suffix(n: int) -> typing.Optional[str]:
-    if 10 < (n % 100) < 20:
-        return "TH"
-    d = n % 10
-    if d == 1:
-        return "ST"
-    elif d == 2:
-        return "ND"
-    elif d == 3:
-        return "RD"
-    else:
-        return "TH"
 
 
 def try_digit_ordinal_to_word(s: str, strict: bool = False) -> typing.Optional[str]:
@@ -396,14 +410,15 @@ def _iter_number_spans(
 
 def _collect_number_parts(
     s: str,
-    params: DecimalizeParams,
+    take_and: bool,
+    take_digits: bool,
 ) -> typing.Optional[typing.List[_Number]]:
     parts: typing.List[_Number] = list()
     for m in WORD_P.finditer(s):
         for w in filter(None, m.groups()):
-            if params.take_and and w.upper() == "AND":
+            if take_and and w.upper() == "AND":
                 continue
-            n = _lookup_number(w, params.take_digits)
+            n = _lookup_number(w, take_digits)
             if n is None:
                 return None
             parts.append(n)
@@ -458,7 +473,9 @@ class _PartsKind(enum.Enum):
 
 def _parse_number_parts(
     parts: typing.List[_Number],
-    params: DecimalizeParams,
+    strict_periods: bool,
+    strict_hundreds: bool,
+    ordinal_bounds: bool,
 ) -> typing.Iterator[typing.Tuple[int, _PartsKind]]:
     n: typing.Optional[int] = None
     kind = _PartsKind.CARDINAL
@@ -469,29 +486,26 @@ def _parse_number_parts(
             p = 1000**part
             f = sum(stack)
             stack.clear()
+            # NOTE: something is wrong here.
+            # need to figure out where handling strict stuff really needs to be
             if f == 0:
-                if not params.strict_periods:
-                    n = (n or 0) + p
+                if not strict_periods:
                     kind = kind.to_improper()
-            else:
-                n = (n or 0) + f * p
+            n = (n or 0) + max(1, f) * p
         elif part == 100:
             f = sum(stack)
-            if f != 0 or not params.strict_periods:
+            if f != 0 or not strict_hundreds:
                 stack.clear()
                 stack.append(max(1, f) * part)
         else:
             stack.append(part)
             n = n or 0
 
-        if part.ordinal and params.ordinal_bounds:
-            if n is not None:
-                yield (n or 0) + sum(stack), _PartsKind.ORDINAL
-                n = None
-                kind = _PartsKind.CARDINAL
-                stack.clear()
-        else:
-            pass
+        if part.ordinal and ordinal_bounds and n is not None:
+            yield (n or 0) + sum(stack), _PartsKind.ORDINAL
+            n = None
+            kind = _PartsKind.CARDINAL
+            stack.clear()
         if part.ordinal:
             if kind.ordinal:
                 kind = _PartsKind.ORDINAL_IMPROPER
@@ -552,9 +566,18 @@ def _decimalize_sub(
 ) -> typing.Iterator[typing.Tuple[str, typing.Optional[_PartsKind]]]:
     # TODO: figure out what the IndexError was coming from, document as "Raises:"
     # with suppress(IndexError):
-    if parts := _collect_number_parts(s, params):
+    if parts := _collect_number_parts(
+        s,
+        params.take_and,
+        params.take_digits,
+    ):
         logger.debug(parts)
-        for n, k in _parse_number_parts(parts, params):
+        for n, k in _parse_number_parts(
+            parts,
+            params.strict_periods,
+            params.strict_hundreds,
+            params.ordinal_bounds,
+        ):
             logger.debug(f"decimalized {n=} {k} take={params.take_kind(k)}")
             if params.take_kind(k):
                 t = str(n) if k.cardinal else f"{n}{_ordinal_suffix(n)}"

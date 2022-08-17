@@ -207,6 +207,14 @@ def is_decimal_ordinal(s: str, strict: bool = False) -> bool:
     return False
 
 
+def is_decimal(s: str, strict: bool = False) -> bool:
+    return s.isdecimal() or is_decimal_ordinal(s, strict)
+
+
+def is_decimal_cardinal(s: str, strict: bool = False) -> bool:
+    return s.isdecimal() and not is_decimal_ordinal(s, strict)
+
+
 def contains_decimal_ordinal(s: str, strict: bool = False) -> bool:
     """Does strint contain any decimal-ordinal words?"""
     return any(
@@ -373,14 +381,14 @@ def _lookup_number(s: str, take_digits: bool) -> typing.Optional[_Number]:
         return _Number(n, False, True)
 
 
-def _is_number(s: str, take_digits: bool = False) -> bool:
+def _is_word_number(s: str, take_digits: bool = False) -> bool:
     return _lookup_number(s, take_digits) is not None
 
 
 WORD_P = re.compile(r"(?:(\S+)-)?(\S+)|AND")
 
 
-def _is_number_match(
+def _is_word_number_match(
     m: typing.Match[str],
     take_and: bool,
 ) -> bool:
@@ -391,7 +399,7 @@ def _is_number_match(
     #     return True
     if take_and and w == "AND":
         return True
-    if all(map(_is_number, filter(None, m.groups()))):
+    if all(map(_is_word_number, filter(None, m.groups()))):
         return True
     return False
 
@@ -402,7 +410,15 @@ def _iter_number_spans(
 ) -> typing.Iterator[typing.Tuple[int, int]]:
     matches: typing.List[typing.Match[str]] = list()
     for m in WORD_P.finditer(s):
-        if _is_number_match(m, take_and):
+        w = m.group()
+        if is_decimal(w):
+            pass
+            if len(matches) > 0:
+                span = (matches[0].start(), matches[-1].end())
+                yield span
+                matches.clear()
+            yield m.span()
+        elif _is_word_number_match(m, take_and):
             matches.append(m)
         elif len(matches) > 0:
             span = (matches[0].start(), matches[-1].end())
@@ -412,7 +428,7 @@ def _iter_number_spans(
         yield (matches[0].start(), matches[-1].end())
 
 
-def _collect_number_parts(
+def _collect_word_number_parts(
     s: str,
     take_and: bool,
     take_digits: bool,
@@ -475,7 +491,7 @@ class _PartsKind(enum.Enum):
                 return _PartsKind.ORDINAL_IMPROPER
 
 
-def _parse_number_parts(
+def _parse_word_number_parts(
     parts: typing.List[_Number],
     strict_periods: bool,
     strict_hundreds: bool,
@@ -485,7 +501,7 @@ def _parse_number_parts(
     kind = _PartsKind.CARDINAL
     stack: typing.List[int] = list()
     for part in parts:
-        logger.log(0, f"part {part} {stack=}")
+        logger.log(5, f"part {part} {stack=}")
         if part.period:
             p = 1000**part
             f = sum(stack)
@@ -570,30 +586,62 @@ class DecimalizeParams:
         raise ValueError
 
 
-def _decimalize_sub(
+def _remove_suffix(s: str) -> str:
+    if m := re.fullmatch(r"(\d+)(?:ST|ND|RD|TH)", s):
+        return m.group(1)
+    return s
+
+
+def _cardinalize_sub(
     s: str,
     params: DecimalizeParams,
 ) -> typing.Iterator[typing.Tuple[str, typing.Optional[_PartsKind]]]:
-    # TODO: figure out what the IndexError was coming from, document as "Raises:"
-    # with suppress(IndexError):
-    if parts := _collect_number_parts(
+    if parts := _collect_word_number_parts(
         s,
         params.take_and,
         params.take_digits,
     ):
-        logger.log(0, parts)
-        for n, k in _parse_number_parts(
+        logger.log(5, parts)
+        for n, k in _parse_word_number_parts(
             parts,
             params.strict_periods,
             params.strict_hundreds,
             params.ordinal_bounds,
         ):
-            logger.debug(f"decimalized {n=} {k} take={params.take_kind(k)}")
+            logger.debug(f"parsed {n=} {k} take={params.take_kind(k)}")
+            if params.take_kind(k):
+                t = str(n) if k.cardinal else f"{n}"
+                yield t, k
+            else:
+                yield s, None
+    else:
+        yield _remove_suffix(s), _PartsKind.CARDINAL
+
+
+def _decimalize_sub(
+    s: str,
+    params: DecimalizeParams,
+) -> typing.Iterator[typing.Tuple[str, typing.Optional[_PartsKind]]]:
+    if parts := _collect_word_number_parts(
+        s,
+        params.take_and,
+        params.take_digits,
+    ):
+        logger.log(5, parts)
+        for n, k in _parse_word_number_parts(
+            parts,
+            params.strict_periods,
+            params.strict_hundreds,
+            params.ordinal_bounds,
+        ):
+            logger.debug(f"parsed {n=} {k} take={params.take_kind(k)}")
             if params.take_kind(k):
                 t = str(n) if k.cardinal else f"{n}{_ordinal_suffix(n)}"
                 yield t, k
             else:
                 yield s, None
+    else:
+        yield digit_ordinalize(s), _PartsKind.ORDINAL
 
 
 A = typing.TypeVar("A")
@@ -609,9 +657,16 @@ def _intersperse(iterable: typing.Iterable[A], fill: B) -> typing.Iterator[A | B
             yield v
 
 
-def decimalize(
+NAlizeSub: typing.TypeAlias = typing.Callable[
+    [str, DecimalizeParams],
+    typing.Iterator[typing.Tuple[str, typing.Optional[_PartsKind]]],
+]
+
+
+def _nalize(
     s: str,
-    params: DecimalizeParams | None = None,
+    params: DecimalizeParams | None,
+    f: NAlizeSub,
 ) -> str:
     """Convert ordinal/cardinal numbers in string input to decimal form."""
     _n = operator.itemgetter(0)
@@ -621,10 +676,10 @@ def decimalize(
     i = 0
     for span_l, span_r in _iter_number_spans(s, params.take_and):
         w = s[span_l:span_r]
-        logger.log(0, f"number span {(w, (i, span_l))}")
+        logger.log(5, f"number span {(w, (i, span_l))}")
         if (t := s[i:span_l]) != "":
             result_parts.append(t)
-        result_parts.extend(_intersperse(map(_n, _decimalize_sub(w, params)), " "))
+        result_parts.extend(_intersperse(map(_n, f(w, params)), " "))
         i = span_r
     if (t := s[i:]) != "":
         result_parts.append(t)
@@ -632,3 +687,30 @@ def decimalize(
     if not params.correct_suffixes:
         return s
     return " ".join(map(fix_decimal_ordinal, s.split()))
+
+
+def cardinalize(s: str, params: DecimalizeParams | None = None) -> str:
+    return _nalize(s, params, _cardinalize_sub)
+
+
+def decimalize(s: str, params: DecimalizeParams | None = None) -> str:
+    """Convert ordinal/cardinal numbers in string input to decimal form."""
+    return _nalize(s, params, _decimalize_sub)
+
+
+# class ToCardinal(enum.Enum):
+#     DECIMAL = enum.auto()
+#     WORD = enum.auto()
+#
+#
+# class ToOrdinal(enum.Enum):
+#     DECIMAL = enum.auto()
+#     WORD = enum.auto()
+
+
+# to decimal cardinal
+# to decimal ordinal
+# to word cardinal
+# to word ordinal
+#
+# convert

@@ -17,23 +17,15 @@
 from __future__ import annotations
 
 import enum
-import itertools
 import logging
-import operator
 import os
 import re
 import typing
 from contextlib import suppress
 from dataclasses import dataclass
 
-from .lookups import (
-    CARDINAL_TO_INT,
-    INT_TO_CARDINAL,
-    INT_TO_ORDINAL,
-    INT_TO_PERIOD,
-    ORDINAL_TO_INT,
-    PERIOD_TO_INT,
-)
+from .lookup import try_lookup_number, try_lookup_word
+from .number import Number
 
 logger = logging.getLogger(__name__)
 if (log_level_str := os.environ.get("NTH_LEVEL")) is not None:
@@ -44,611 +36,15 @@ if (log_level_str := os.environ.get("NTH_LEVEL")) is not None:
     logger.setLevel(log_level)
 
 
-class Period(typing.NamedTuple):
-    """A period for ordinal/cardinal representation of a number.
-
-    With regards to numbers, a period is a grouping of digits that makes representing
-    numbers easier, and corresponds to a place value within the number. The first period
-    represents the first three least significant digits, the second or thousandths period
-    represents the thousandths digits, and so on. For example, 12345 has zeroth period 345
-    written as "three hundred forty-five" and thousandths period 12 written as "twelve
-    thousand"; together "twelve thousand three hundred forty five."
-
-    In Python, number literals can contain underscore characters; these are often used to
-    denote periods. e.g. 12_345.
-
-    Fields:
-        period: Index of the period (0: zeroth, 1: thousandths, etc.)
-        digits: Digits for the period
-    """
-
-    period: int
-    digits: int
-
-    def to_cardinal(self) -> str:
-        """Construct the cardinal representation of the period."""
-        p = "" if self.period == 0 else " " + INT_TO_PERIOD[self.period]
-        q, r = divmod(self.digits, 100)
-        if q > 0:
-            if r > 0:
-                # e.g. ONE HUNDRED ONE
-                _q = _encode_hecto(q, INT_TO_CARDINAL)
-                _r = _encode_hecto(r, INT_TO_CARDINAL)
-                return f"{_q} HUNDRED {_r}{p}"
-            else:
-                # e.g. ONE HUNDRED
-                _q = _encode_hecto(q, INT_TO_CARDINAL)
-                return f"{_q} HUNDRED{p}"
-        else:
-            # e.g. ONE; TEN; ONE THOUSAND
-            _r = _encode_hecto(r, INT_TO_CARDINAL)
-            return f"{_r}{p}"
-
-    def to_ordinal(self) -> str:
-        """Construct the ordinal representation of the period."""
-        p = "" if self.period == 0 else " " + INT_TO_PERIOD[self.period]
-        q, r = divmod(self.digits, 100)
-        if q > 0:
-            # e.g. ONE HUNDRED FIRST; ONE THOUSAND ONE HUNDRED ELEVENTH
-            if r > 0:
-                _q = _encode_hecto(q, INT_TO_CARDINAL)
-                _r = _encode_hecto(r, INT_TO_ORDINAL)
-                return f"{_q} HUNDRED {_r}{p}"
-            else:
-                _q = _encode_hecto(q, INT_TO_CARDINAL)
-                return f"{_q} HUNDRED{p}TH"
-        elif p:
-            # e.g. ONE THOUSANDTH
-            _r = _encode_hecto(r, INT_TO_CARDINAL)
-            return f"{_r}{p}TH"
-        else:
-            # e.g. TENTH; ONE THOUSAND TENTH
-            _r = _encode_hecto(r, INT_TO_ORDINAL)
-            return f"{_r}{p}"
-
-    @staticmethod
-    def periods_from_int(n: int) -> typing.Iterator[Period]:
-        """Iterate periods of number from least to most significant."""
-        period = 0
-        while n > 0:
-            digits = n % 1000
-            if digits != 0:
-                yield Period(period, digits)
-            n //= 1000
-            period += 1
-
-    def __str__(self) -> str:
-        """As string (cardinal representation)."""
-        return self.to_cardinal()
-
-
-def _encode_hecto(n: int, lookup: typing.Dict[int, str]) -> str:
-    """Encode an integer strictly between zero and a hundred.
-
-    Arguments:
-        n: Integer to encode.
-        lookup: Lookup table (either INT_TO_CARDINAL or INT_TO_ORDINAL).
-
-    Raises:
-        AssertionError: If n <= 0 or n >= 100.
-    """
-    assert n > 0 and n < 100
-    if s := lookup.get(n):
-        return s
-    deca = n % 10
-    hundreds = INT_TO_CARDINAL[n - deca]
-    hecto = _encode_hecto(deca, lookup)
-    return f"{hundreds}-{hecto}"
-
-
-def int_to_cardinal(n: int) -> str:
-    """Convert integer to cardinal form."""
-    if n == 0:
-        return "zero"
-    periods = list(Period.periods_from_int(n))
-    return " ".join(map(str, reversed(periods)))
-
-
-def int_to_ordinal(n: int) -> str:
-    """Convert integer to ordinal form."""
-    if n == 0:
-        return "zeroth"
-    periods = list(Period.periods_from_int(n))
-    periods.reverse()
-    ordinal_period = periods.pop()
-    return " ".join(itertools.chain(map(str, periods), (ordinal_period.to_ordinal(),)))
-
-
-def _ordinal_suffix(n: int) -> typing.Optional[str]:
-    if 10 < (n % 100) < 20:
-        return "TH"
-    d = n % 10
-    if d == 1:
-        return "ST"
-    elif d == 2:
-        return "ND"
-    elif d == 3:
-        return "RD"
-    else:
-        return "TH"
-
-
-def int_to_digit_ordinal(n: int) -> str:
-    suffix = _ordinal_suffix(n)
-    return f"{n}{suffix}"
-
-
-DECIMAL_ORDINAL_NONSTRICT_P = re.compile(r"\b(\d+)(ST|ND|RD|TH)\b", re.IGNORECASE)
-
-
-def fix_decimal_ordinal(s: str) -> str:
-    if m := DECIMAL_ORDINAL_NONSTRICT_P.fullmatch(s):
-        n = int(m.group(1))
-        suffix = _ordinal_suffix(n)
-        return f"{n}{suffix}"
-    return s
-
-
-def is_decimal_ordinal(s: str, strict: bool = False) -> bool:
-    """Is string a decimal-ordinal number?
-
-    True examples:
-    - "123RD"
-    - "123TH" only if strict=True
-
-    False examples:
-    - "ONE HUNDRED TWENTY-THIRD" this is word-ordinal, not decimal-ordinal
-    """
-    if m := DECIMAL_ORDINAL_NONSTRICT_P.fullmatch(s):
-        if not strict:
-            return True
-        n, suffix = typing.cast(tuple[str, str], m.groups())
-        return _ordinal_suffix(int(n)) == suffix
-    return False
-
-
-def is_decimal(s: str, strict: bool = False) -> bool:
-    return s.isdecimal() or is_decimal_ordinal(s, strict)
-
-
-def is_decimal_cardinal(s: str, strict: bool = False) -> bool:
-    return s.isdecimal() and not is_decimal_ordinal(s, strict)
-
-
-def contains_decimal_ordinal(s: str, strict: bool = False) -> bool:
-    """Does strint contain any decimal-ordinal words?"""
-    return any(
-        map(
-            lambda w: is_decimal_ordinal(w, strict),
-            map(re.Match[str].group, re.finditer(r"\S+", s)),
-        )
-    )
-
-
-# strict patterns for matching digit ordinals
-DECIMAL_ORDINAL_ONES = r"(?<!1)1ST"
-DECIMAL_ORDINAL_TWOS = r"(?<!1)2ND"
-DECIMAL_ORDINAL_THREES = r"(?<!1)3RD"
-DECIMAL_ORDINAL_TEENS = r"1[1-9]TH"
-DECIMAL_ORDINAL_OTHERWISE = r"(?:(?:10)|(?:(?<!1)[04-9]))TH"
-DECIMAL_ORDINAL_PATTERNS = [
-    DECIMAL_ORDINAL_ONES,
-    DECIMAL_ORDINAL_TWOS,
-    DECIMAL_ORDINAL_THREES,
-    DECIMAL_ORDINAL_TEENS,
-    DECIMAL_ORDINAL_OTHERWISE,
-]
-DECIMAL_ORDINAL_STRICT_P = re.compile(
-    rf"\d*(?:{'|'.join(DECIMAL_ORDINAL_PATTERNS)})",
-    re.IGNORECASE,
-)
-
-
-def try_normalize_ordinal(s: str, strict: bool = False) -> typing.Optional[str]:
-    """Try to normalize a numeric ordinal.
-
-    Attempts to normalize an ordinal number in numeric (integer) form.
-    e.g.:
-    1st -> FIRST
-    12nd -> TWELVTH
-    23rd -> TWENTY-THIRD
-
-    If the input is not an ordinal number or has the wrong suffix (e.g. 1nd, 2th),
-    then None is returned.
-    """
-    if strict:
-        if DECIMAL_ORDINAL_STRICT_P.fullmatch(s):
-            return int_to_ordinal(int(s[:-2]))
-    elif DECIMAL_ORDINAL_NONSTRICT_P.fullmatch(s):
-        return int_to_ordinal(int(s[:-2]))
-
-
-def try_ordinalize(s: str, strict: bool = False) -> typing.Optional[str]:
-    """Try to normalize a numeric ordinal, converting cardinals to ordinals."""
-    if s.isdecimal():
-        return int_to_ordinal(int(s))
-    return try_normalize_ordinal(s, strict)
-
-
-def try_digit_ordinal_to_word(s: str, strict: bool = False) -> typing.Optional[str]:
-    """Try to convert digit ordinal to word ordinal.
-
-    For example: "34TH" to "THIRTY-FOURTH".
-
-    If strict is True, digit ordinals with the wrong suffix will not be converted.
-    For example, "34ST" is result in None.
-
-    Arguments:
-        s: String to conert if a digit ordinal.
-        strict: If to only convert digit ordinals with the correct suffix.
-    """
-    if m := re.fullmatch(r"(\d+)(ST|ND|RD|TH)?", s):
-        n = int(m.group(1))
-        _suffix: str = m.group(2)
-
-        suffix = _ordinal_suffix(n)
-        assert suffix is not None
-        res = f"{n}{suffix}"
-
-        if _suffix:
-            if strict and suffix != _suffix.upper():
-                return None
-            if not _suffix.isupper():
-                return res.lower()
-        return res
-
-
-def is_digit_ordinal(s: str, strict: bool = False) -> bool:
-    """Is string a digit ordinal?
-
-    For example "34TH".
-    """
-    return try_digit_ordinal_to_word(s, strict) == s.upper()
-    # if (n := try_digit_ordinalize(s, strict)) is not None:
-    #     return n == s.upper()
-    # return False
-
-
-def digit_ordinalize(s: str, strict: bool = False) -> str:
-    """Convert digit ordinals to word ordinals or return original input."""
-    if (_s := try_digit_ordinal_to_word(s, strict)) is not None:
-        return _s
-    return s
-
-
-class _Number(int):
-    def __init__(self, n: int, is_period: bool, is_ordinal: bool):
-        self.__period = is_period
-        self.__ordinal = is_ordinal
-
-    def __new__(cls, n: int, _is_period: bool, _is_ordinal: bool):
-        return super(_Number, cls).__new__(cls, n)
-
-    def __repr__(self) -> str:
-        if self.period:
-            if self.ordinal:
-                return f"PO({int(1000**self)})"
-            return f"PC({int(1000**self)})"
-        else:
-            if self.ordinal:
-                return f"O({int(self)})"
-            return f"C({int(self)})"
-
-    @property
-    def period(self) -> bool:
-        return self.__period
-
-    @property
-    def ordinal(self) -> bool:
-        return self.__ordinal
-
-    @property
-    def cardinal(self) -> bool:
-        return not self.ordinal
-
-
-ZERO = {
-    "ZERO": _Number(0, False, False),
-    "ZEROTH": _Number(0, False, True),
-}
-
-
-HUNDRED = {
-    "HUNDRED": _Number(100, False, False),
-    "HUNDREDTH": _Number(100, False, True),
-}
-
-
-def _lookup_number(s: str, take_digits: bool) -> typing.Optional[_Number]:
-    # NOTE:
-    # Disabled while thinking this through...
-    # What exactly you allow disallow here is a can or worms.
-    # - "2 HUNDRED"
-    # - "THREE 1000" ???
-    # if take_digits and s.isdecimal():
-    #     return _Number(int(s), False, False)
-    _s = s.upper()
-    ordinal = _s.endswith("TH")
-    if (p := PERIOD_TO_INT.get(_s[:-2] if ordinal else _s)) is not None:
-        return _Number(p, True, ordinal)
-    if (n := ZERO.get(_s)) is not None:
-        return n
-    if (n := HUNDRED.get(_s)) is not None:
-        return n
-    if (n := CARDINAL_TO_INT.get(_s)) is not None:
-        return _Number(n, False, False)
-    if (n := ORDINAL_TO_INT.get(_s)) is not None:
-        return _Number(n, False, True)
-
-
-def _is_word_number(s: str, take_digits: bool = False) -> bool:
-    return _lookup_number(s, take_digits) is not None
-
-
-WORD_P = re.compile(r"(?:(\S+)-)?(\S+)|AND")
-
-
-def _is_word_number_match(
-    m: typing.Match[str],
-    take_and: bool,
-) -> bool:
-    w = m.group().upper()
-    # NOTE:
-    # See _lookup_number notes...
-    # if w.isdecimal():
-    #     return True
-    if take_and and w == "AND":
-        return True
-    if all(map(_is_word_number, filter(None, m.groups()))):
-        return True
-    return False
-
-
-def _iter_number_spans(
-    s: str,
-    take_and: bool,
-) -> typing.Iterator[typing.Tuple[int, int]]:
-    matches: typing.List[typing.Match[str]] = list()
-    for m in WORD_P.finditer(s):
-        w = m.group()
-        if is_decimal(w):
-            pass
-            if len(matches) > 0:
-                span = (matches[0].start(), matches[-1].end())
-                yield span
-                matches.clear()
-            yield m.span()
-        elif _is_word_number_match(m, take_and):
-            matches.append(m)
-        elif len(matches) > 0:
-            span = (matches[0].start(), matches[-1].end())
-            yield span
-            matches.clear()
-    if len(matches) > 0:
-        yield (matches[0].start(), matches[-1].end())
-
-
-def _collect_word_number_parts(
-    s: str,
-    take_and: bool,
-    take_digits: bool,
-) -> typing.Optional[typing.List[_Number]]:
-    parts: typing.List[_Number] = list()
-    for m in WORD_P.finditer(s):
-        for w in filter(None, m.groups()):
-            if take_and and w.upper() == "AND":
-                continue
-            n = _lookup_number(w, take_digits)
-            if n is None:
-                return None
-            parts.append(n)
-    if len(parts) > 0:
-        return parts
-
-
-class _PartsKind(enum.Enum):
-    CARDINAL = enum.auto()
-    ORDINAL = enum.auto()
-    CARDINAL_IMPROPER = enum.auto()
-    ORDINAL_IMPROPER = enum.auto()
-
-    @property
-    def cardinal(self) -> bool:
-        return self in (_PartsKind.CARDINAL, _PartsKind.CARDINAL_IMPROPER)
-
-    @property
-    def ordinal(self) -> bool:
-        return self in (_PartsKind.ORDINAL, _PartsKind.ORDINAL_IMPROPER)
-
-    @property
-    def improper(self) -> bool:
-        return self in (_PartsKind.CARDINAL_IMPROPER, _PartsKind.ORDINAL_IMPROPER)
-
-    def __repr__(self) -> str:
-        return self.name
-
-    def __str__(self) -> str:
-        return repr(self)
-
-    def to_improper(self) -> _PartsKind:
-        if self in (_PartsKind.CARDINAL, _PartsKind.CARDINAL_IMPROPER):
-            return _PartsKind.CARDINAL_IMPROPER
-        if self in (_PartsKind.ORDINAL, _PartsKind.ORDINAL_IMPROPER):
-            return _PartsKind.ORDINAL_IMPROPER
-        raise NotImplementedError
-
-    @staticmethod
-    def from_flags(ordinal: bool, improper: bool) -> _PartsKind:
-        if not ordinal:
-            if not improper:
-                return _PartsKind.CARDINAL
-            else:
-                return _PartsKind.CARDINAL_IMPROPER
-        else:
-            if not improper:
-                return _PartsKind.ORDINAL
-            else:
-                return _PartsKind.ORDINAL_IMPROPER
-
-
-def _parse_word_number_parts(
-    parts: typing.List[_Number],
-    strict_periods: bool,
-    strict_hundreds: bool,
-    ordinal_bounds: bool,
-) -> typing.Iterator[typing.Tuple[int, _PartsKind]]:
-    n: typing.Optional[int] = None
-    kind = _PartsKind.CARDINAL
-    stack: typing.List[int] = list()
-    for part in parts:
-        logger.log(5, f"part {part} {stack=}")
-        if part.period:
-            p = 1000**part
-            f = sum(stack)
-            stack.clear()
-            # NOTE: something is wrong here.
-            # need to figure out where handling strict stuff really needs to be
-            if f == 0:
-                if not strict_periods:
-                    kind = kind.to_improper()
-            n = (n or 0) + max(1, f) * p
-        elif part == 100:
-            f = sum(stack)
-            if f != 0 or not strict_hundreds:
-                stack.clear()
-                stack.append(max(1, f) * part)
-        else:
-            stack.append(part)
-            n = n or 0
-
-        if part.ordinal and ordinal_bounds and n is not None:
-            yield (n or 0) + sum(stack), _PartsKind.ORDINAL
-            n = None
-            kind = _PartsKind.CARDINAL
-            stack.clear()
-        if part.ordinal:
-            if kind.ordinal:
-                kind = _PartsKind.ORDINAL_IMPROPER
-            else:
-                kind = _PartsKind.ORDINAL
-    if n is not None or len(stack) > 0:
-        yield (n or 0) + sum(stack), kind
-
-
-@dataclass
-class DecimalizeParams:
-    """Decimalize parameters.
-
-    A few definitions:
-
-    - A *period* is a groups of digits when writing/speaking numbers standard form. In
-      English, a period is three digits. But words like "thousand", "million", "billion"
-      represent a different power of a thousand.
-    - A *simple number* is one with a single or two digits; e.g. 1, 23, 99.
-
-    Fields:
-        strict_periods: Periods must start with a simple number or hundred.
-        strict_hundreds: Hundreds must start with a simple number.
-        take_and: With any "AND" present, only accept if they join periods/hundreds.
-        ignore_and: Ignore any "AND" regardless of where.
-        take_digits: Allow pure digits.
-        ordinal_bounds: Numbers are terminated by ordinal suffixes.
-    """
-
-    correct_suffixes: bool = True
-
-    strict_periods: bool = True
-    strict_hundreds: bool = True
-
-    # TODO: implement take_and/ignore_and usage
-    take_and: bool = True
-    ignore_and: bool = False
-    # TODO: do something with take_digits
-    take_digits: bool = True
-
-    ordinal_bounds: bool = True
-
-    cardinal: bool = True
-    cardinal_improper: bool = True
-    ordinal: bool = True
-    ordinal_improper: bool = True
-
-    def take_kind(self, k: _PartsKind) -> bool:
-        """Get paramter flag from parts kind."""
-        if k == _PartsKind.CARDINAL:
-            return self.cardinal
-        elif k == _PartsKind.ORDINAL:
-            return self.ordinal
-        elif k == _PartsKind.CARDINAL_IMPROPER:
-            return self.cardinal_improper
-        elif k == _PartsKind.ORDINAL_IMPROPER:
-            return self.ordinal_improper
-        raise ValueError
-
-
-def _remove_suffix(s: str) -> str:
-    if m := re.fullmatch(r"(\d+)(?:ST|ND|RD|TH)", s):
-        return m.group(1)
-    return s
-
-
-def _cardinalize_sub(
-    s: str,
-    params: DecimalizeParams,
-) -> typing.Iterator[typing.Tuple[str, typing.Optional[_PartsKind]]]:
-    if parts := _collect_word_number_parts(
-        s,
-        params.take_and,
-        params.take_digits,
-    ):
-        logger.log(5, parts)
-        for n, k in _parse_word_number_parts(
-            parts,
-            params.strict_periods,
-            params.strict_hundreds,
-            params.ordinal_bounds,
-        ):
-            logger.debug(f"parsed {n=} {k} take={params.take_kind(k)}")
-            if params.take_kind(k):
-                t = str(n) if k.cardinal else f"{n}"
-                yield t, k
-            else:
-                yield s, None
-    else:
-        yield _remove_suffix(s), _PartsKind.CARDINAL
-
-
-def _decimalize_sub(
-    s: str,
-    params: DecimalizeParams,
-) -> typing.Iterator[typing.Tuple[str, typing.Optional[_PartsKind]]]:
-    if parts := _collect_word_number_parts(
-        s,
-        params.take_and,
-        params.take_digits,
-    ):
-        logger.log(5, parts)
-        for n, k in _parse_word_number_parts(
-            parts,
-            params.strict_periods,
-            params.strict_hundreds,
-            params.ordinal_bounds,
-        ):
-            logger.debug(f"parsed {n=} {k} take={params.take_kind(k)}")
-            if params.take_kind(k):
-                t = str(n) if k.cardinal else f"{n}{_ordinal_suffix(n)}"
-                yield t, k
-            else:
-                yield s, None
-    else:
-        yield digit_ordinalize(s), _PartsKind.ORDINAL
-
-
-A = typing.TypeVar("A")
-B = typing.TypeVar("B")
-
-
-def _intersperse(iterable: typing.Iterable[A], fill: B) -> typing.Iterator[A | B]:
+_T1 = typing.TypeVar("_T1")
+_T2 = typing.TypeVar("_T2")
+
+
+def intersperse(
+    iterable: typing.Iterable[_T1],
+    fill: _T2,
+) -> typing.Iterator[_T1 | _T2]:
+    """Intersperse."""
     it = iter(iterable)
     with suppress(StopIteration):
         yield next(it)
@@ -657,60 +53,428 @@ def _intersperse(iterable: typing.Iterable[A], fill: B) -> typing.Iterator[A | B
             yield v
 
 
-NAlizeSub: typing.TypeAlias = typing.Callable[
-    [str, DecimalizeParams],
-    typing.Iterator[typing.Tuple[str, typing.Optional[_PartsKind]]],
+class FormatArg(enum.Enum):
+    """Format argument type."""
+
+    CARDINAL_DECIMAL = enum.auto()
+    CARDINAL_WORD = enum.auto()
+    ORDINAL_DECIMAL = enum.auto()
+    ORDINAL_WORD = enum.auto()
+
+    @property
+    def cardinal(self) -> bool:
+        """Is this a cardinal format?"""
+        return cardinal_format(self)
+
+    @property
+    def ordinal(self) -> bool:
+        """Is this an ordinal format?"""
+        return not self.cardinal
+
+    @property
+    def decimal(self) -> bool:
+        """Is this a decimal format?"""
+        return decimal_format(self)
+
+    @property
+    def word(self) -> bool:
+        """Is this a word format?"""
+        return not self.decimal
+
+
+_Enum = typing.TypeVar("_Enum", bound=enum.Enum)
+_VariantGuard: typing.TypeAlias = typing.TypeGuard[_Enum]
+
+_CardinalFormat: typing.TypeAlias = typing.Literal[
+    FormatArg.CARDINAL_DECIMAL,
+    FormatArg.CARDINAL_WORD,
+]
+_OrdinalFormat: typing.TypeAlias = typing.Literal[
+    FormatArg.ORDINAL_DECIMAL,
+    FormatArg.ORDINAL_WORD,
+]
+_DecimalFormat: typing.TypeAlias = typing.Literal[
+    FormatArg.CARDINAL_DECIMAL,
+    FormatArg.ORDINAL_DECIMAL,
+]
+_WordFormat: typing.TypeAlias = typing.Literal[
+    FormatArg.CARDINAL_WORD,
+    FormatArg.ORDINAL_WORD,
 ]
 
 
-def _nalize(
+def cardinal_format(fmt: FormatArg) -> _VariantGuard[_CardinalFormat]:
+    """Type guard format is a cardinal variant."""
+    return fmt in (FormatArg.CARDINAL_DECIMAL, FormatArg.CARDINAL_WORD)
+
+
+def ordinal_format(fmt: FormatArg) -> _VariantGuard[_OrdinalFormat]:
+    """Type guard format is an ordinal variant."""
+    return not cardinal_format(fmt)
+
+
+def decimal_format(fmt: FormatArg) -> _VariantGuard[_DecimalFormat]:
+    """Type guard format is a decimal format."""
+    return fmt in (FormatArg.CARDINAL_DECIMAL, FormatArg.ORDINAL_DECIMAL)
+
+
+def word_format(fmt: FormatArg) -> _VariantGuard[_WordFormat]:
+    """Type guard format is a word format."""
+    return not decimal_format(fmt)
+
+
+class CardinalAndArg(enum.Enum):
+    """Cardinal "and" behavior."""
+
+    IGNORE = enum.auto()
+    STRICT = enum.auto()
+    DENY = enum.auto()
+
+
+@dataclass
+class CardinalArgs:
+    """Cardinal behavior argument pack."""
+
+    and_behavior: CardinalAndArg
+
+
+@dataclass
+class NthalizeArgs:
+    """Nthalize argument pack."""
+
+    format: FormatArg
+    cardinal_and: CardinalAndArg = CardinalAndArg.IGNORE
+
+
+class Suffix(str, enum.Enum):
+    """Ordinal suffix."""
+
+    ST = "ST"
+    ND = "ND"
+    RD = "RD"
+    TH = "TH"
+
+    @staticmethod
+    def for_int(n: int) -> Suffix:
+        """Get suffix for integer."""
+        if 10 < (n % 100) < 20:
+            return Suffix.TH
+        d = n % 10
+        if d == 1:
+            return Suffix.ST
+        elif d == 2:
+            return Suffix.ND
+        elif d == 3:
+            return Suffix.RD
+        else:
+            return Suffix.TH
+
+
+def int_to_decimal_ordinal(n: int) -> str:
+    """Convert integer to decimal ordinal string."""
+    return f"{n}{Suffix.for_int(n)}"
+
+
+# Roughly match cardinal/ordinal words.
+NUMBERISH_WORD_P = re.compile(
+    r"(?:(\S+)-)?(\S+)|AND",
+    re.IGNORECASE,
+)
+
+# Match a decimal ordinal (non-strict).
+DECIMAL_ORDINAL_NONSTRICT_P = re.compile(
+    r"\b(\d+)(ST|ND|RD|TH)\b",
+    re.IGNORECASE,
+)
+
+
+def is_ordinal_number(s: str, strict: bool = False) -> bool:
+    """Is string an ordinal number (decimal or word form)."""
+    if m := DECIMAL_ORDINAL_NONSTRICT_P.fullmatch(s):
+        if not strict:
+            return True
+        return s.upper() == int_to_decimal_ordinal(int(m.group(1)))
+    return False
+
+
+def is_number(s: str, strict: bool = False) -> bool:
+    """Is string a number (cardinal or ordinal, decimal or word form)."""
+    return s.isdecimal() or is_ordinal_number(s, strict)
+
+
+def is_cardinal_number(s: str, strict: bool = False) -> bool:
+    """Is string a cardinal number (decimal or word form)."""
+    return s.isdecimal() and not is_ordinal_number(s, strict)
+
+
+def is_number_word(s: str) -> bool:
+    """Is string a number word?"""
+    return try_lookup_number(s) is not None
+
+
+def is_number_word_match(m: typing.Match[str]) -> bool:
+    """Is Match object over a number word?"""
+    return all(map(is_number_word, filter(None, m.groups())))
+
+
+class Span(typing.NamedTuple):
+    """Span tuple helper."""
+
+    l: int
+    r: int
+
+    def to_slice(self) -> slice:
+        """To slice object."""
+        return slice(*self)
+
+    def slice(self, s: str) -> str:
+        """Slice a string."""
+        return s[self.to_slice()]
+
+
+def iter_number_spans(s: str) -> typing.Iterator[Span]:
+    """Iterate substring spans that are numeric."""
+    matches: list[typing.Match[str]] = list()
+
+    def full_span() -> Span | None:
+        if len(matches) > 0:
+            span = Span(matches[0].start(), matches[-1].end())
+            matches.clear()
+            return span
+
+    for m in NUMBERISH_WORD_P.finditer(s):
+        logger.log(0, m)
+        w = m.group()
+        if is_number(w):
+            if span := full_span():
+                yield span
+            yield Span(*m.span())
+        elif w == "AND":
+            continue
+        elif is_number_word_match(m):
+            matches.append(m)
+        elif span := full_span():
+            yield span
+    if span := full_span():
+        yield span
+
+
+def try_parse_numbers(
     s: str,
-    params: DecimalizeParams | None,
-    f: NAlizeSub,
-) -> str:
-    """Convert ordinal/cardinal numbers in string input to decimal form."""
-    _n = operator.itemgetter(0)
+    cardinal_and: CardinalAndArg,
+) -> typing.Iterator[Number | str]:
+    """Try to parse whole string as number."""
+    # TODO:
+    # - cardinal_and args
+    # - ordinal bounds
+    del cardinal_and
 
-    params = params or DecimalizeParams()
-    result_parts: typing.List[str] = list()
+    n: Number | None = None
+    stack: list[Number] = []
+
+    def try_take():
+        if n is not None or len(stack) > 0:
+            res = (n or Number(0)) + sum(stack)
+            return res
+
+    for w in s.upper().replace("-", " ").split():
+        if w == "AND":
+            continue
+        p = try_lookup_number(w)
+        logger.log(5, f"part {w=} -> {p=} ({n=} {stack=})")
+        if p is None:
+            if (v := try_take()) is not None:
+                n = None
+                stack.clear()
+                yield v
+            yield w
+            continue
+        if p.period or p.hundred:
+            f = max(Number(1), sum(stack))
+            stack.clear()
+            if p.period:
+                v = f * 1000**p
+                n = (n or Number(0)) + v
+            else:  # hundred
+                v = f * p
+                stack.append(Number(v))
+        else:
+            stack.append(p)
+
+        if p.ordinal:
+            if (v := try_take()) is not None:
+                n = None
+                stack.clear()
+                yield v
+    if (v := try_take()) is not None:
+        n = None
+        stack.clear()
+        yield v
+
+
+def number_to_word_parts(n: Number) -> list[Number]:
+    """Construct {Number} parts for conversion to a word format."""
+    _n = n.copy()
+    if _n == 0:
+        return [_n]
+
+    parts: list[Number] = []
+    e = 0
+    while _n > 0:
+        p = _n % 1000
+        if p > 0 and e > 0:
+            parts.append(Number(e, period=True))
+        q, r = divmod(p, 100)
+        if r > 0:
+            parts.append(Number(r))
+        if q > 0:
+            parts.append(Number(100))
+            parts.append(Number(q))
+        _n //= 1000
+        if _n > 0:
+            parts.append(Number(e, False, True))
+        e += 1
+    return parts
+
+
+def number_to_decimal_str(n: Number, fmt: _DecimalFormat) -> str:
+    """Convert number to decimal format string."""
+    raise NotImplementedError
+
+
+def number_to_word_str(n: Number, fmt: _WordFormat) -> str:
+    """Convert number to word format string."""
+    parts = number_to_word_parts(n)
+    for p in parts:
+        w = try_lookup_word(p)
+        print(f"{p=}, {w=}")
+    return str(n)
+
+
+def format_number(n: Number, fmt: FormatArg) -> str:
+    """Convert to specified format."""
+    logger.log(5, f"format {n=}")
+    if decimal_format(fmt):
+        number_to_decimal_str(n, fmt)
+    if word_format(fmt):
+        number_to_word_str(n, fmt)
+    return str(n)
+
+
+# class _PartsKind(enum.Enum):
+#     CARDINAL = enum.auto()
+#     ORDINAL = enum.auto()
+#     CARDINAL_IMPROPER = enum.auto()
+#     ORDINAL_IMPROPER = enum.auto()
+#
+#     @property
+#     def cardinal(self) -> bool:
+#         return self in (_PartsKind.CARDINAL, _PartsKind.CARDINAL_IMPROPER)
+#
+#     @property
+#     def ordinal(self) -> bool:
+#         return self in (_PartsKind.ORDINAL, _PartsKind.ORDINAL_IMPROPER)
+#
+#     @property
+#     def improper(self) -> bool:
+#         return self in (_PartsKind.CARDINAL_IMPROPER, _PartsKind.ORDINAL_IMPROPER)
+#
+#     def __repr__(self) -> str:
+#         return self.name
+#
+#     def __str__(self) -> str:
+#         return repr(self)
+#
+#     def to_improper(self) -> _PartsKind:
+#         if self in (_PartsKind.CARDINAL, _PartsKind.CARDINAL_IMPROPER):
+#             return _PartsKind.CARDINAL_IMPROPER
+#         if self in (_PartsKind.ORDINAL, _PartsKind.ORDINAL_IMPROPER):
+#             return _PartsKind.ORDINAL_IMPROPER
+#         raise NotImplementedError
+#
+#     @staticmethod
+#     def from_flags(ordinal: bool, improper: bool) -> _PartsKind:
+#         if not ordinal:
+#             if not improper:
+#                 return _PartsKind.CARDINAL
+#             else:
+#                 return _PartsKind.CARDINAL_IMPROPER
+#         else:
+#             if not improper:
+#                 return _PartsKind.ORDINAL
+#             else:
+#                 return _PartsKind.ORDINAL_IMPROPER
+
+
+# def _parse_word_number_parts(
+#     parts: list[_Number],
+#     strict_periods: bool,
+#     strict_hundreds: bool,
+#     ordinal_bounds: bool,
+# ) -> typing.Iterator[tuple[int, _PartsKind]]:
+#     n: typing.Optional[int] = None
+#     kind = _PartsKind.CARDINAL
+#     stack: list[int] = list()
+#     for part in parts:
+#         logger.log(5, f"part {part} {stack=}")
+#         if part.period:
+#             p = 1000**part
+#             f = sum(stack)
+#             stack.clear()
+#             # NOTE: something is wrong here.
+#             # need to figure out where handling strict stuff really needs to be
+#             if f == 0:
+#                 if not strict_periods:
+#                     kind = kind.to_improper()
+#             n = (n or 0) + max(1, f) * p
+#         elif part == 100:
+#             f = sum(stack)
+#             if f != 0 or not strict_hundreds:
+#                 stack.clear()
+#                 stack.append(max(1, f) * part)
+#         else:
+#             stack.append(part)
+#             n = n or 0
+#
+#         if part.ordinal and ordinal_bounds and n is not None:
+#             yield (n or 0) + sum(stack), _PartsKind.ORDINAL
+#             n = None
+#             kind = _PartsKind.CARDINAL
+#             stack.clear()
+#         if part.ordinal:
+#             if kind.ordinal:
+#                 kind = _PartsKind.ORDINAL_IMPROPER
+#             else:
+#                 kind = _PartsKind.ORDINAL
+#     if n is not None or len(stack) > 0:
+#         yield (n or 0) + sum(stack), kind
+
+
+def nthalize(s: str, args: NthalizeArgs):
+    """Nthalize throughout a string."""
+    # _n = operator.itemgetter(0)
+
     i = 0
-    for span_l, span_r in _iter_number_spans(s, params.take_and):
-        w = s[span_l:span_r]
-        logger.log(5, f"number span {(w, (i, span_l))}")
-        if (t := s[i:span_l]) != "":
-            result_parts.append(t)
-        result_parts.extend(_intersperse(map(_n, f(w, params)), " "))
-        i = span_r
-    if (t := s[i:]) != "":
-        result_parts.append(t)
-    s = "".join(result_parts)
-    if not params.correct_suffixes:
-        return s
-    return " ".join(map(fix_decimal_ordinal, s.split()))
+    res: list[str] = []
+    for span in iter_number_spans(s):
+        if (w := s[i : span.l]) != "":
+            res.append(w)
+        w = span.slice(s)
+        logger.debug(f'number span "{w}" {tuple(span)}')
 
+        def map_n(n: Number | str) -> str:
+            match n:
+                case str():
+                    res = n
+                case Number():
+                    res = format_number(n, args.format)
+            logger.log(5, f"{n=} -> {res=}")
+            return res
 
-def cardinalize(s: str, params: DecimalizeParams | None = None) -> str:
-    return _nalize(s, params, _cardinalize_sub)
+        n_it = try_parse_numbers(w, args.cardinal_and)
 
-
-def decimalize(s: str, params: DecimalizeParams | None = None) -> str:
-    """Convert ordinal/cardinal numbers in string input to decimal form."""
-    return _nalize(s, params, _decimalize_sub)
-
-
-# class ToCardinal(enum.Enum):
-#     DECIMAL = enum.auto()
-#     WORD = enum.auto()
-#
-#
-# class ToOrdinal(enum.Enum):
-#     DECIMAL = enum.auto()
-#     WORD = enum.auto()
-
-
-# to decimal cardinal
-# to decimal ordinal
-# to word cardinal
-# to word ordinal
-#
-# convert
+        res.extend(map(map_n, intersperse(n_it, " ")))
+        i = span.r
+    if (w := s[i:]) != "":
+        res.append(w)
+    return "".join(res)

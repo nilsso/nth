@@ -26,7 +26,6 @@ from .lookup import lookup_word, try_lookup_number
 from .number import Number
 
 logger = logging.getLogger(__name__)
-logger.setLevel(1)
 
 
 class Suffix(str, enum.Enum):
@@ -58,12 +57,6 @@ def int_to_decimal_ordinal(n: int) -> str:
     """Convert integer to decimal ordinal string."""
     return f"{n}{Suffix.for_int(n)}"
 
-
-# Roughly match cardinal/ordinal words.
-NUMBERISH_WORD_P = re.compile(
-    r"(?:(\S+)-)?(\S+)|AND",
-    re.IGNORECASE,
-)
 
 # Match a decimal ordinal (non-strict).
 DECIMAL_ORDINAL_NONSTRICT_P = re.compile(
@@ -114,11 +107,6 @@ def is_number_word(s: str) -> bool:
     return try_lookup_number(s) is not None
 
 
-def is_number_word_match(m: typing.Match[str]) -> bool:
-    """Is Match object over a number word?"""
-    return all(map(is_number_word, filter(None, m.groups())))
-
-
 class Span(typing.NamedTuple):
     """Span tuple helper."""
 
@@ -134,6 +122,18 @@ class Span(typing.NamedTuple):
         return s[self.to_slice()]
 
 
+def is_number_word_match(m: typing.Match[str]) -> bool:
+    """Is Match object over a number word?"""
+    return all(map(is_number_word, filter(None, m.groups())))
+
+
+# Roughly match cardinal/ordinal words.
+NUMBERISH_WORD_P = re.compile(
+    r"\b(?:(?:([^\s,.]+)-)?([^\s,.]+))\b",
+    re.IGNORECASE,
+)
+
+
 def iter_number_spans(s: str) -> typing.Iterator[Span]:
     """Iterate substring spans that are numeric."""
     matches: list[typing.Match[str]] = list()
@@ -145,13 +145,16 @@ def iter_number_spans(s: str) -> typing.Iterator[Span]:
             return span
 
     for m in NUMBERISH_WORD_P.finditer(s):
-        logger.log(0, m)
-        w = m.group()
-        if is_decimal(w):
+        n = m.group()
+        logger.log(1, f"number-ish word {n=} groups={m.groups()} {len(matches)=}")
+        if n == ",":
+            if span := full_span():
+                yield span
+        elif is_decimal(n):
             if span := full_span():
                 yield span
             yield Span(*m.span())
-        elif w == "AND":
+        elif n.upper() == "AND":
             continue
         elif is_number_word_match(m):
             matches.append(m)
@@ -163,11 +166,13 @@ def iter_number_spans(s: str) -> typing.Iterator[Span]:
 
 def contains_numbers(s: str) -> bool:
     """Does string contain any number-like sequences?"""
-    try:
-        next(iter_number_spans(s))
-        return True
-    except StopIteration:
-        return False
+    del s
+    raise NotImplementedError
+    # try:
+    #     next(iter_number_spans(s))
+    #     return True
+    # except StopIteration:
+    #     return False
 
 
 def try_parse_word_number(
@@ -188,8 +193,6 @@ def try_parse_word_number(
     for w in s.upper().replace("-", " ").split():
         if w == "AND":
             continue
-        # if w.isdecimal():
-        #     raise SystemError
         else:
             p = try_lookup_number(w)
             logger.log(5, f"part {w=} -> {p=} ({n=} {stack=})")
@@ -334,13 +337,28 @@ class NthalizeArgs(typing.TypedDict):
     word_behavior: WordBehavior | None
 
 
+def default_args() -> NthalizeArgs:
+    """Make default nthalize argument pack."""
+    return NthalizeArgs(
+        number="CARDINAL",
+        format="DECIMAL",
+        word_behavior=default_word_behavior(),
+    )
+
+
 class _NthalizeArgs(typing.NamedTuple):
     as_ordinal: bool
     as_word: bool
     word_behavior: WordBehavior
 
     @staticmethod
-    def from_typed_dict(args: NthalizeArgs) -> _NthalizeArgs:
+    def default() -> _NthalizeArgs:
+        return _NthalizeArgs.new(default_args())
+
+    @staticmethod
+    def new(args: NthalizeArgs | None) -> _NthalizeArgs:
+        if args is None:
+            return _NthalizeArgs.default()
         match args.get("number"):
             case "CARDINAL" | None:
                 as_ordinal = False
@@ -363,10 +381,9 @@ class _NthalizeArgs(typing.NamedTuple):
         )
 
 
-def nthalize(s: str, args: NthalizeArgs):
+def nthalize(s: str, args: NthalizeArgs | None = None):
     """Nthalize throughout a string."""
-    # _n = operator.itemgetter(0)
-    _args = _NthalizeArgs.from_typed_dict(args)
+    _args = _NthalizeArgs.new(args)
 
     def map_n(n: Number) -> str:
         return format_number(n, _args.as_ordinal, _args.as_word)

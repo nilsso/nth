@@ -1,6 +1,7 @@
 """CLI utility for nth."""
 import argparse
 import logging
+import re
 import textwrap
 import typing
 from contextlib import suppress
@@ -13,7 +14,11 @@ import nth
 import nth.nthalize
 from nth.nthalize import nthalize as _nthalize
 
-DEFAULT_LOG_LEVEL = logging.WARNING
+DEFAULT_LOG_LEVEL = logging.INFO
+
+
+def _log_level(n: int):
+    return DEFAULT_LOG_LEVEL - 10 * n
 
 
 def _strip_dedent(s: str) -> str:
@@ -36,6 +41,7 @@ class Locale(typing.TypedDict):
     convert_description: str
     convert_epilog: str
     convert_arg_format: str
+    convert_arg_interactive: str
 
 
 LOC_EN_US: Locale = Locale(
@@ -90,7 +96,8 @@ LOC_EN_US: Locale = Locale(
         "O"    | Word ordinals.
         """
     ),
-    convert_arg_format='Output format (one of "c", "C", "o" or "O").',
+    convert_arg_format="Output format.",
+    convert_arg_interactive="Interactive mode.",
 )
 
 LOCALES = {
@@ -111,19 +118,60 @@ def _nth_detect(args: argparse.Namespace):
     print(nth.nthalize.contains_numbers(args.input))
 
 
+VERBOSE_P = re.compile(r"/v(\d+)")
+
+
 def _nth_convert(args: argparse.Namespace):
-    _n, _f = TO_KIND_MAP[args.format]
-    nthalize_args = nth.NthalizeArgs(
-        number=_n,
-        format=_f,
-        word_behavior=None,
-    )
-    with suppress(KeyboardInterrupt, EOFError):
-        while line := input():
-            print(_nthalize(line, nthalize_args))
+    if not args.interactive:
+        _n, _f = TO_KIND_MAP[args.format]
+
+        nthalize_args = nth.NthalizeArgs(
+            number=_n,
+            format=_f,
+            word_behavior=None,
+        )
+        with suppress(KeyboardInterrupt, EOFError):
+            while line := input():
+                print(_nthalize(line, nthalize_args))
+    else:
+        import readline  # type: ignore
+
+        nth_logger = nth.nthalize.logger
+        main_logger = logging.getLogger(__name__)
+        main_logger.setLevel(logging.INFO)
+
+        _c = nth.NthalizeArgs(number="CARDINAL", format="DECIMAL", word_behavior=None)
+        _C = nth.NthalizeArgs(number="CARDINAL", format="WORD", word_behavior=None)
+        _o = nth.NthalizeArgs(number="ORDINAL", format="DECIMAL", word_behavior=None)
+        _O = nth.NthalizeArgs(number="ORDINAL", format="WORD", word_behavior=None)
+        FORMATS = {
+            "/c": (_c, "cardinal decimal"),
+            "/C": (_C, "cardinal word"),
+            "/o": (_o, "ordinal decimal"),
+            "/O": (_O, "ordinal word"),
+        }
+        FORMAT_KEYS = list(FORMATS.keys())
+
+        nthalize_args = nth.nthalize.default_args()
+
+        with suppress(KeyboardInterrupt, EOFError):
+            while line := input():
+                match line:
+                    case s if (m := VERBOSE_P.fullmatch(s)) is not None:
+                        n = _log_level(int(m.group(1)))
+                        nth_logger.setLevel(n)
+                        main_logger.info(f"log level set to {n}")
+                        pass
+                    case s if s in FORMAT_KEYS:
+                        format, msg = FORMATS[s]
+                        nthalize_args.update(format)
+                        main_logger.info(f"format changed to {msg}")
+                    case _:
+                        print(_nthalize(line, nthalize_args))
 
 
 def main():
+    """Main driver function."""
     loc: Locale = LOCALES["enUS"]
 
     # ------------------------------------------------------------------------------------
@@ -155,7 +203,7 @@ def main():
         description=loc["detect_description"],
         formatter_class=RichHelpFormatter,
     )
-    detect_parser.set_defaults(f=_nth_detect)
+    detect_parser.set_defaults(func=_nth_detect)
     detect_parser.add_argument(
         "input",
         metavar="INPUT",
@@ -172,25 +220,32 @@ def main():
         epilog=loc["convert_epilog"],
         formatter_class=RichHelpFormatter,
     )
-    convert_parser.set_defaults(f=_nth_convert)
-    convert_parser.add_argument(
-        "format",
-        metavar="FORMAT",
+    convert_parser.set_defaults(func=_nth_convert)
+    convert_mode_group = convert_parser.add_mutually_exclusive_group(required=True)
+    convert_mode_group.add_argument(
+        "-f",
+        "--format",
         choices=["c", "C", "o", "O"],
         help=loc["convert_arg_format"],
+    )
+    convert_mode_group.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help=loc["convert_arg_interactive"],
     )
 
     # ------------------------------------------------------------------------------------
     args = parser.parse_args()
 
-    log_level = DEFAULT_LOG_LEVEL - 10 * args.verbose
+    log_level = _log_level(args.verbose)
     logging.basicConfig(
         level=log_level,
         format="(%(pathname)s:%(lineno)d)\n%(message)s",
         handlers=[rich.logging.RichHandler()],
     )
 
-    args.f(args)
+    args.func(args)
 
 
 if __name__ == "__main__":

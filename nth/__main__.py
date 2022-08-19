@@ -1,195 +1,197 @@
 """CLI utility for nth."""
 import argparse
-import enum
 import logging
 import textwrap
+import typing
 from contextlib import suppress
 
 import rich.logging
 from rich import print
+from rich_argparse import RichHelpFormatter  # type: ignore
 
 import nth
+import nth.nthalize
+from nth.nthalize import nthalize as _nthalize
 
-# import os
-# import readline  # type: ignore
-
-
-# def run_cardinalize(args: argparse.Namespace):
-#     params = nth.DecimalizeParams(
-#         strict_periods=not args.not_strict_periods,
-#         strict_hundreds=not args.not_strict_hundreds,
-#         take_and=not args.no_and,
-#         ordinal_bounds=not args.no_ordinal_bounds,
-#         cardinal=not args.no_cardinal,
-#         ordinal=not args.no_ordinal,
-#         cardinal_improper=args.improper or args.cardinal_improper,
-#         ordinal_improper=args.improper or args.ordinal_improper,
-#     )
-#
-#     with suppress(KeyboardInterrupt, EOFError):
-#         while line := input():
-#             print(f'"{nth.cardinalize(line, params)}"')
-#
-#
-# def run_decimalize(args: argparse.Namespace):
-#     params = nth.DecimalizeParams(
-#         strict_periods=not args.not_strict_periods,
-#         strict_hundreds=not args.not_strict_hundreds,
-#         take_and=not args.no_and,
-#         ordinal_bounds=not args.no_ordinal_bounds,
-#         cardinal=not args.no_cardinal,
-#         ordinal=not args.no_ordinal,
-#         cardinal_improper=args.improper or args.cardinal_improper,
-#         ordinal_improper=args.improper or args.ordinal_improper,
-#     )
-#
-#     with suppress(KeyboardInterrupt, EOFError):
-#         while line := input():
-#             print(f'"{nth.decimalize(line, params)}"')
-#
-#
-# def run_check(args: argparse.Namespace):
-#     with suppress(KeyboardInterrupt, EOFError):
-#         while line := input():
-#             print(f'line: "{line}"')
-#             for m, f in [
-#                 ("      is decimal ordinal:", nth.is_decimal_ordinal),
-#                 ("contains decimal ordinal:", nth.contains_decimal_ordinal),
-#             ]:
-#                 print(m, f(line))
+DEFAULT_LOG_LEVEL = logging.WARNING
 
 
-# def setup_subparser(subparser: argparse.ArgumentParser):
-#     subparser.add_argument(
-#         "-P",
-#         dest="not_strict_periods",
-#         action="store_true",
-#         help="Allow non-strict periods.",
-#     )
-#     subparser.add_argument(
-#         "-H",
-#         dest="not_strict_hundreds",
-#         action="store_true",
-#         help="Allow non-strict hundreds.",
-#     )
-#     subparser.add_argument(
-#         "-A",
-#         dest="no_and",
-#         action="store_true",
-#         help='Disallow "AND" in input.',
-#     )
-#     subparser.add_argument(
-#         "-B",
-#         dest="no_ordinal_bounds",
-#         action="store_true",
-#         help="Don't end numbers at first ordinal part.",
-#     )
-#     subparser.add_argument(
-#         "-ci",
-#         dest="cardinal_improper",
-#         action="store_true",
-#         help="Allow improper cardinal numbers.",
-#     )
-#     subparser.add_argument(
-#         "-oi",
-#         dest="ordinal_improper",
-#         action="store_true",
-#         help="Allow improper ordinal numbers.",
-#     )
-#     subparser.add_argument(
-#         "-i",
-#         dest="improper",
-#         action="store_true",
-#         help="Allow improper numbers (cardinal and ordinal).",
-#     )
-#     subparser.add_argument(
-#         "-C",
-#         dest="no_cardinal",
-#         action="store_true",
-#         help="Don't perform cardinal replacement.",
-#     )
-#     subparser.add_argument(
-#         "-O",
-#         dest="no_ordinal",
-#         action="store_true",
-#         help="Don't perform ordinal replacement.",
-#     )
+def _strip_dedent(s: str) -> str:
+    return textwrap.dedent(s).strip()
 
 
-def main(params: nth.NthalizeArgs):
-    with suppress(KeyboardInterrupt, EOFError):
-        while line := input():
-            print(nth.nthalize(line, args))
+class Locale(typing.TypedDict):
+    """Locale."""
+
+    # base command
+    help: str
+    help_epilog: str
+    arg_verbose: str
+    # detect subcommand
+    detect_help: str
+    detect_description: str
+    detect_arg_input: str
+    # convert subcommand
+    convert_help: str
+    convert_description: str
+    convert_epilog: str
+    convert_arg_format: str
 
 
-class Loc(str, enum.Enum):
-    DESCRIPTION = (
-        """\
-For each STDIN line, detects all numbers (cardinal or ordinal) in either:
-- Decimal format (e.g. "12", "32nd"), or
-- Word format    (e.g. "one", "forty-fourth")
-And converts them to the desired format and prints the result to STDOUT.
+LOC_EN_US: Locale = Locale(
+    # ------------------------------------------------------------------------------------
+    # base command
+    # ------------------------------------------------------------------------------------
+    help=_strip_dedent(
+        """
+        Utility for detecting and converting numbers.
 
-Output format key:
-    c : Decimal cardinals
-    C : Word cardinals
-    o : Decimal cordinals
-    O : Word ordinals\
-        """,
-    )
-    EPILOG = (
-        """\
+        A "number" can be in any cardinal or ordinal, decimal or word format.
+        (See epilog for examples on these terms.)
+
+        See "nth {cmd} -h" for subcommand help.
+        """
+    ),
+    help_epilog=_strip_dedent(
+        """
         (Examples) | Decimal        | Word
-        ---------- | -------------- | ------------------------------------------
+        ---------- | -------------- | -------------------------------------------
         Cardinal   | "1"   | "23"   | "FOUR"   | "ONE HUNDRED AND NINETY-SEVEN"
-        Ordinal    | "1ST" | "23RD" | "FOURTH" | "ONE HUNDRED AND NINETY-SEVENTH"\
-        """,
-    )
-    VERBOSE = "Verbose output (can be specified multiple times)."
-    # TO_CARDINAL_DECIMAL = "Output format: decimal cardinals."
-    # TO_CARDINAL_WORD = "Output format: word cardinals."
-    # TO_ORDINAL_DECIMAL = "Output format: decimal ordinals."
-    # TO_ORDINAL_WORD = "Output format: word ordinals."
-    FORMAT = ('Output format (one of "c", "C", "o" or "O").',)
+        Ordinal    | "1ST" | "23RD" | "FOURTH" | "ONE HUNDRED AND NINETY-SEVENTH"
+        """
+    ),
+    arg_verbose="Verbose output (can be specified multiple times).",
+    # ------------------------------------------------------------------------------------
+    # detect subcommand
+    # ------------------------------------------------------------------------------------
+    detect_help="Detect numbers within a string.",
+    detect_description=(
+        "Return 1 if input string contains any number-like sequences"
+        " according to the filter parameters, else 0."
+    ),
+    detect_arg_input="Input string.",
+    # ------------------------------------------------------------------------------------
+    # convert subcommand
+    # ------------------------------------------------------------------------------------
+    convert_help="Convert numbers within STDIN lines.",
+    convert_description=(
+        "For each STDIN line, converts all number-like sequences into"
+        " the desired format and outputs the converted line to STDOUT."
+        "\n\n"
+        "(See epilog for format descriptions.)"
+    ),
+    convert_epilog=_strip_dedent(
+        """
+        FORMAT | Description
+        ------ | ------------------
+        "c"    | Decimal cardinals.
+        "C"    | Word cardinals.
+        "o"    | Decimal cordinals.
+        "O"    | Word ordinals.
+        """
+    ),
+    convert_arg_format='Output format (one of "c", "C", "o" or "O").',
+)
 
-
-TO_KIND_MAP = {
-    "c": nth.FormatArg.CARDINAL_DECIMAL,
-    "C": nth.FormatArg.CARDINAL_WORD,
-    "o": nth.FormatArg.ORDINAL_DECIMAL,
-    "O": nth.FormatArg.ORDINAL_WORD,
+LOCALES = {
+    "enUS": LOC_EN_US,
 }
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        "nth",
-        description=Loc.DESCRIPTION,
-        epilog=textwrap.dedent(Loc.EPILOG),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+TO_KIND_MAP = {
+    "c": ("CARDINAL", "DECIMAL"),
+    "C": ("CARDINAL", "WORD"),
+    "o": ("ORDINAL", "DECIMAL"),
+    "O": ("ORDINAL", "WORD"),
+}
+
+
+def _nth_detect(args: argparse.Namespace):
+    # TODO: filter parameters
+    print(nth.nthalize.contains_numbers(args.input))
+
+
+def _nth_convert(args: argparse.Namespace):
+    _n, _f = TO_KIND_MAP[args.format]
+    nthalize_args = nth.NthalizeArgs(
+        number=_n,
+        format=_f,
+        word_behavior=None,
     )
+    with suppress(KeyboardInterrupt, EOFError):
+        while line := input():
+            print(_nthalize(line, nthalize_args))
+
+
+def main():
+    loc: Locale = LOCALES["enUS"]
+
+    # ------------------------------------------------------------------------------------
+    # base command
+    # ------------------------------------------------------------------------------------
+    parser = argparse.ArgumentParser(
+        __name__.removesuffix(".__main__"),
+        formatter_class=RichHelpFormatter,
+        description=loc["help"],
+        epilog=loc["help_epilog"],
+    )
+
     parser.add_argument(
         "-v",
         dest="verbose",
         action="count",
         default=0,
-        help=Loc.VERBOSE,
+        help=loc["arg_verbose"],
     )
-    parser.add_argument(
+
+    subparsers = parser.add_subparsers(metavar="cmd")
+
+    # ------------------------------------------------------------------------------------
+    # detect subcommand
+    # ------------------------------------------------------------------------------------
+    detect_parser = subparsers.add_parser(
+        "detect",
+        help=loc["detect_help"],
+        description=loc["detect_description"],
+        formatter_class=RichHelpFormatter,
+    )
+    detect_parser.set_defaults(f=_nth_detect)
+    detect_parser.add_argument(
+        "input",
+        metavar="INPUT",
+        help=loc["detect_arg_input"],
+    )
+
+    # ------------------------------------------------------------------------------------
+    # convert subcommand
+    # ------------------------------------------------------------------------------------
+    convert_parser = subparsers.add_parser(
+        "convert",
+        help=loc["convert_help"],
+        description=loc["convert_description"],
+        epilog=loc["convert_epilog"],
+        formatter_class=RichHelpFormatter,
+    )
+    convert_parser.set_defaults(f=_nth_convert)
+    convert_parser.add_argument(
         "format",
-        metavar="Format",
+        metavar="FORMAT",
         choices=["c", "C", "o", "O"],
-        help=Loc.FORMAT,
+        help=loc["convert_arg_format"],
     )
-    cli_args = parser.parse_args()
-    log_level = max(0, logging.WARNING - 10 * cli_args.verbose)
+
+    # ------------------------------------------------------------------------------------
+    args = parser.parse_args()
+
+    log_level = DEFAULT_LOG_LEVEL - 10 * args.verbose
     logging.basicConfig(
         level=log_level,
         format="(%(pathname)s:%(lineno)d)\n%(message)s",
         handlers=[rich.logging.RichHandler()],
     )
-    args = nth.NthalizeArgs(
-        format=TO_KIND_MAP[cli_args.format],
-        # TODO: cardinal_and config
-    )
-    main(args)
+
+    args.f(args)
+
+
+if __name__ == "__main__":
+    main()

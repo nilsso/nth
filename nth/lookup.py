@@ -9,32 +9,48 @@ from .number import Number
 # - "FORTHEENTH
 
 
-def try_lookup_number(s: str) -> typing.Optional[Number]:
-    """Lookup {Number} from number word.
+def try_lookup_number(w: str) -> Number | None:
+    """Lookup {Number} from number word or None if not found.
 
     Only accepts single word numbers, like "1" or "TWENTY", and not "TWENTY ONE".
     For multiword use the full {try_parse} algorithm.
     """
-    _s = s.upper()
+    _w = w.upper()
     for d in N_LOOKUPS:
-        if (n := d.get(_s)) is not None:
+        if (n := d.get(_w)) is not None:
             return n
 
 
-def try_lookup_word(n: Number) -> typing.Optional[str]:
-    """Lookup number word from {Number}."""
+def lookup_number(w: str) -> Number:
+    """Lookup {Number} from number word."""
+    n = try_lookup_number(w)
+    if n is None:
+        raise ValueError(f"lookup_number {w=}")
+    return n
+
+
+def try_lookup_word(n: Number) -> str | None:
+    """Lookup number word from {Number} or None if not found."""
     for d in WORD_LOOKUPS:
         if (w := d.get(n)) is not None:
             return w
 
 
-def _reverse_mapping(d: typing.Dict[Number, str]) -> typing.Dict[str, Number]:
+def lookup_word(n: Number) -> str:
+    """Lookup number word from {Number}."""
+    w = try_lookup_word(n)
+    if w is None:
+        raise ValueError(f"lookup_word {w=}")
+    return w
+
+
+def _reverse_mapping(d: dict[Number, str]) -> dict[str, Number]:
     """Construct reverse map from str to word Number."""
     return {s: n.copy(word=True) for n, s in d.items()}
 
 
 def _make_map_raw(period: bool):
-    def _map_raw(p: typing.Tuple[int, str, str]):
+    def _map_raw(p: tuple[int, str, str]):
         n, c, o = p
         _c = (Number(n, ordinal=False, word=False, period=period), c)
         _o = (Number(n, ordinal=True, word=False, period=period), o)
@@ -43,7 +59,7 @@ def _make_map_raw(period: bool):
     return _map_raw
 
 
-def _map_period_raw(p: typing.Tuple[int, str]):
+def _map_period_raw(p: tuple[int, str]):
     n, c = p
     return (n, c, c + "TH")
 
@@ -90,11 +106,11 @@ _PERIODS_RAW = [
 
 
 N_TO_CARDINAL, N_TO_ORDINAL = typing.cast(
-    typing.Tuple[typing.Dict[Number, str], ...],
+    tuple[dict[Number, str], ...],
     map(dict, zip(*map(_make_map_raw(False), _PARTS_RAW))),
 )
 N_TO_CARDINAL_PERIOD, N_TO_ORDINAL_PERIOD = typing.cast(
-    typing.Tuple[typing.Dict[Number, str], ...],
+    tuple[dict[Number, str], ...],
     map(dict, zip(*map(_make_map_raw(True), map(_map_period_raw, _PERIODS_RAW)))),
 )
 N_TO_ZERO = {

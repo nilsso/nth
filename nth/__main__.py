@@ -15,10 +15,7 @@ import nth.nthalize
 from nth.nthalize import nthalize as _nthalize
 
 DEFAULT_LOG_LEVEL = logging.INFO
-
-
-def _log_level(n: int):
-    return DEFAULT_LOG_LEVEL - 10 * n
+HISTORY_PATH = "/tmp/nth_history"
 
 
 def _strip_dedent(s: str) -> str:
@@ -42,6 +39,9 @@ class Locale(typing.TypedDict):
     convert_epilog: str
     convert_arg_format: str
     convert_arg_interactive: str
+    # convert interactive
+    convert_interactive_help: str
+    convert_interactive_help_extended: str
 
 
 LOC_EN_US: Locale = Locale(
@@ -98,6 +98,25 @@ LOC_EN_US: Locale = Locale(
     ),
     convert_arg_format="Output format.",
     convert_arg_interactive="Interactive mode.",
+    convert_interactive_help=_strip_dedent(
+        """
+        nth convert interactive mode commands:
+            "/h"    : Print this help message
+            "/c"    : Set format to cardinal decimal.
+            "/C"    : Set format to cardinal word.
+            "/o"    : Set format to ordinal decimal.
+            "/O"    : Set format to ordinal word.
+            "/v(n)" : Set log level to {n}.
+        to quit: CTRL-C/CTRL-D
+        """
+    ),
+    convert_interactive_help_extended=_strip_dedent(
+        """
+        additionally:
+        - up/down arrows scroll through history
+        - history is stored in "/tmp/nth_history"
+        """
+    ),
 )
 
 LOCALES = {
@@ -105,69 +124,83 @@ LOCALES = {
 }
 
 
-TO_KIND_MAP = {
-    "c": ("CARDINAL", "DECIMAL"),
-    "C": ("CARDINAL", "WORD"),
-    "o": ("ORDINAL", "DECIMAL"),
-    "O": ("ORDINAL", "WORD"),
-}
-
-
-def _nth_detect(args: argparse.Namespace):
+def _nth_detect(_: Locale, args: argparse.Namespace):
     # TODO: filter parameters
     print(nth.nthalize.contains_numbers(args.input))
 
 
-VERBOSE_P = re.compile(r"/v(\d+)")
-
-
-def _nth_convert(args: argparse.Namespace):
-    if not args.interactive:
-        _n, _f = TO_KIND_MAP[args.format]
-
-        nthalize_args = nth.NthalizeArgs(
-            number=_n,
-            format=_f,
-            word_behavior=None,
-        )
-        with suppress(KeyboardInterrupt, EOFError):
-            while line := input():
-                print(_nthalize(line, nthalize_args))
+def _nth_convert(loc: Locale, args: argparse.Namespace):
+    if args.interactive:
+        _nth_convert_interactive(loc)
     else:
-        import readline  # type: ignore
+        _nth_convert_stdin(loc, args)
 
-        nth_logger = nth.nthalize.logger
-        main_logger = logging.getLogger(__name__)
-        main_logger.setLevel(logging.INFO)
 
-        _c = nth.NthalizeArgs(number="CARDINAL", format="DECIMAL", word_behavior=None)
-        _C = nth.NthalizeArgs(number="CARDINAL", format="WORD", word_behavior=None)
-        _o = nth.NthalizeArgs(number="ORDINAL", format="DECIMAL", word_behavior=None)
-        _O = nth.NthalizeArgs(number="ORDINAL", format="WORD", word_behavior=None)
-        FORMATS = {
-            "/c": (_c, "cardinal decimal"),
-            "/C": (_C, "cardinal word"),
-            "/o": (_o, "ordinal decimal"),
-            "/O": (_O, "ordinal word"),
-        }
-        FORMAT_KEYS = list(FORMATS.keys())
+def _nth_convert_stdin(_: Locale, args: argparse.Namespace):
+    TO_KIND_MAP = {
+        "c": ("CARDINAL", "DECIMAL"),
+        "C": ("CARDINAL", "WORD"),
+        "o": ("ORDINAL", "DECIMAL"),
+        "O": ("ORDINAL", "WORD"),
+    }
+    _n, _f = TO_KIND_MAP[args.format]
 
-        nthalize_args = nth.nthalize.default_args()
+    nthalize_args = nth.NthalizeArgs(
+        number=_n,
+        format=_f,
+        word_behavior=None,
+    )
+    with suppress(KeyboardInterrupt, EOFError):
+        while line := input():
+            print(_nthalize(line, nthalize_args))
 
-        with suppress(KeyboardInterrupt, EOFError):
-            while line := input():
-                match line:
-                    case s if (m := VERBOSE_P.fullmatch(s)) is not None:
-                        n = _log_level(int(m.group(1)))
+
+def _nth_convert_interactive(loc: Locale):
+    import readline
+
+    open(HISTORY_PATH, "a").close()
+    readline.read_history_file(HISTORY_PATH)
+
+    nth_logger = nth.nthalize.logger
+
+    _c = nth.NthalizeArgs(number="CARDINAL", format="DECIMAL", word_behavior=None)
+    _C = nth.NthalizeArgs(number="CARDINAL", format="WORD", word_behavior=None)
+    _o = nth.NthalizeArgs(number="ORDINAL", format="DECIMAL", word_behavior=None)
+    _O = nth.NthalizeArgs(number="ORDINAL", format="WORD", word_behavior=None)
+    FORMATS = {
+        "/c": (_c, "cardinal decimal"),
+        "/C": (_C, "cardinal word"),
+        "/o": (_o, "ordinal decimal"),
+        "/O": (_O, "ordinal word"),
+    }
+    FORMAT_KEYS = list(FORMATS.keys())
+    VERBOSE_P = re.compile(r"/v(.+)")
+
+    nthalize_args = nth.nthalize.default_args()
+
+    with suppress(KeyboardInterrupt, EOFError):
+        print(loc["convert_interactive_help"])
+        print(loc["convert_interactive_help_extended"])
+        while line := input("> "):
+            match line:
+                case "/h":
+                    print(loc["convert_interactive_help"])
+                case s if (m := VERBOSE_P.fullmatch(s)) is not None:
+                    g = m.group(1)
+                    try:
+                        n = int(g)
                         nth_logger.setLevel(n)
-                        main_logger.info(f"log level set to {n}")
-                        pass
-                    case s if s in FORMAT_KEYS:
-                        format, msg = FORMATS[s]
-                        nthalize_args.update(format)
-                        main_logger.info(f"format changed to {msg}")
-                    case _:
-                        print(_nthalize(line, nthalize_args))
+                        print(f"log level set to {n}")
+                    except ValueError:
+                        print(f'invalid non-numeric log level "{g}"')
+                case s if s in FORMAT_KEYS:
+                    format, msg = FORMATS[s]
+                    nthalize_args.update(format)
+                    print(f"format changed to {msg}")
+                case _:
+                    print(_nthalize(line, nthalize_args))
+
+    readline.write_history_file(HISTORY_PATH)
 
 
 def main():
@@ -238,14 +271,14 @@ def main():
     # ------------------------------------------------------------------------------------
     args = parser.parse_args()
 
-    log_level = _log_level(args.verbose)
+    log_level = DEFAULT_LOG_LEVEL - 10 * args.verbose
     logging.basicConfig(
         level=log_level,
         format="(%(pathname)s:%(lineno)d)\n%(message)s",
         handlers=[rich.logging.RichHandler()],
     )
 
-    args.func(args)
+    args.func(loc, args)
 
 
 if __name__ == "__main__":

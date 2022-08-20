@@ -87,6 +87,15 @@ def is_cardinal_decimal(s: str, strict: bool = False) -> bool:
     return s.isdecimal() and not is_ordinal_decimal(s, strict)
 
 
+def contains_ordinal_decimal(s: str, strict: bool = False) -> bool:
+    for m in DECIMAL_ORDINAL_NONSTRICT_P.finditer(s):
+        if not strict:
+            return True
+        if s.upper() == int_to_decimal_ordinal(int(m.group(1))):
+            return True
+    return False
+
+
 def try_decimal_to_int(s: str, strict: bool = False) -> int | None:
     """Convert string to integer if it represents a decimal number."""
     if is_decimal(s, strict):

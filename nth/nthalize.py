@@ -55,7 +55,8 @@ class Suffix(str, enum.Enum):
 
 def int_to_decimal_ordinal(n: int) -> str:
     """Convert integer to decimal ordinal string."""
-    return f"{n}{Suffix.for_int(n)}"
+    suffix = Suffix.for_int(n)
+    return f"{n}{suffix.value}"
 
 
 # Match a decimal ordinal (non-strict).

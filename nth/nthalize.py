@@ -307,7 +307,7 @@ def format_number(
         res = number_to_word_str(n, as_ordinal)
     else:
         res = number_to_decimal_str(n, as_ordinal)
-    logger.debug(f"formated {n=} -> {res=}")
+    logger.debug(f"formatted {n=} -> {res=}")
     assert res is not None
     return res
 

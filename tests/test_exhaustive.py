@@ -14,7 +14,7 @@ import pytest
 import nth
 import nth.nthalize
 
-_RAW_PARAMS = [
+params = [
     ("1", "1ST", "ONE", "FIRST"),
     ("2", "2ND", "TWO", "SECOND"),
     ("3", "3RD", "THREE", "THIRD"),
@@ -92,7 +92,7 @@ _RAW_PARAMS = [
 CARDINAL, ORDINAL, CARDINAL_WORD, ORDINAL_WORD = L_PARAMS = list(
     typing.cast(
         typing.Iterator[list[str]],
-        map(list, zip(*_RAW_PARAMS)),
+        map(list, zip(*params)),
     )
 )
 
@@ -159,3 +159,14 @@ def test_exhaustive(
     p: ExhaustiveParam,
 ):
     _test_exhaustive(p)
+
+
+# @pytest.mark.parametrize(
+#     "input,expect",
+#     [
+#         (),
+#     ],
+# )
+# def test_cardinalize(input: str, expect: str) -> None:
+#     nth.nthalize.try_parse_numbers()
+#     assert nth.cardinalize(input) == expect

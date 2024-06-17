@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable, NamedTuple, Union
+from typing import Iterable
 
 from .number import Integer
 

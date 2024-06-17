@@ -1,3 +1,17 @@
+import tyro
+from rich.console import Console
+
+from . import ordinalize
+
+
+def main(s: str, /) -> None:
+    console = Console()
+    console.print(ordinalize(s))
+
+
+tyro.cli(main)
+
+
 # """CLI utility for nth."""
 # import argparse
 # import logging

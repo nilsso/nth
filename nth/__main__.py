@@ -6,10 +6,6 @@ import textwrap
 import typing
 from contextlib import suppress
 
-import rich.logging
-from rich import print
-from rich_argparse import RichHelpFormatter  # type: ignore
-
 import nth
 import nth.nthalize
 from nth.nthalize import nthalize as _nthalize
@@ -212,7 +208,6 @@ def main():
     # ------------------------------------------------------------------------------------
     parser = argparse.ArgumentParser(
         __name__.removesuffix(".__main__"),
-        formatter_class=RichHelpFormatter,
         description=loc["help"],
         epilog=loc["help_epilog"],
     )
@@ -234,7 +229,6 @@ def main():
         "detect",
         help=loc["detect_help"],
         description=loc["detect_description"],
-        formatter_class=RichHelpFormatter,
     )
     detect_parser.set_defaults(func=_nth_detect)
     detect_parser.add_argument(
@@ -251,7 +245,6 @@ def main():
         help=loc["convert_help"],
         description=loc["convert_description"],
         epilog=loc["convert_epilog"],
-        formatter_class=RichHelpFormatter,
     )
     convert_parser.set_defaults(func=_nth_convert)
     convert_mode_group = convert_parser.add_mutually_exclusive_group(required=True)
@@ -275,7 +268,6 @@ def main():
     logging.basicConfig(
         level=log_level,
         format="(%(pathname)s:%(lineno)d)\n%(message)s",
-        handlers=[rich.logging.RichHandler()],
     )
 
     args.func(loc, args)

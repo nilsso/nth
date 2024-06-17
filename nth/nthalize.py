@@ -24,7 +24,7 @@ import typing
 
 from ._utils import intersperse
 from .lookup import lookup_word, try_lookup_number
-from .number import Number
+from .number import Integer
 
 logger = logging.getLogger(__name__)
 
@@ -189,16 +189,16 @@ def contains_numbers(s: str) -> bool:
 def try_parse_word_number(
     s: str,
     word_behavior: WordBehavior,
-) -> typing.Iterator[Number | str]:
+) -> typing.Iterator[Integer | str]:
     """Try to parse as multi-word number."""
     # TODO: use word_behavior
     del word_behavior
-    n: Number | None = None
-    stack: list[Number] = []
+    n: Integer | None = None
+    stack: list[Integer] = []
 
     def try_take():
         if n is not None or len(stack) > 0:
-            res = (n or Number(0)) + sum(stack)
+            res = (n or Integer(0)) + sum(stack)
             return res
 
     for w in s.upper().replace("-", " ").split():
@@ -219,10 +219,10 @@ def try_parse_word_number(
                 stack.clear()
                 if p.period:
                     v = f * 1000**p
-                    n = (n or Number(0)) + v
+                    n = (n or Integer(0)) + v
                 else:  # hundred
                     v = f * p
-                    stack.append(Number(v))
+                    stack.append(Integer(v))
             else:
                 stack.append(p)
 
@@ -240,53 +240,53 @@ def try_parse_word_number(
 def try_parse_numbers(
     s: str,
     word_behavior: WordBehavior,
-) -> typing.Iterator[Number | str]:
+) -> typing.Iterator[Integer | str]:
     """Try to parse string as number of either decimal or word format."""
     if (n := try_decimal_to_int(s)) is not None:
-        yield Number(n, ordinal=is_ordinal_decimal(s))
+        yield Integer(n, ordinal=is_ordinal_decimal(s))
     else:
         for v in try_parse_word_number(s, word_behavior):
             yield v
 
 
-def number_to_word_parts(n: Number) -> list[Number]:
+def number_to_word_parts(n: Integer) -> list[Integer]:
     """Construct {Number} parts for conversion to a word format."""
     _n = n.copy()
     if _n == 0:
         return [_n]
 
-    parts: list[Number] = []
+    parts: list[Integer] = []
     e = 0
     while _n > 0:
         p = _n % 1000
         if p > 0 and e > 0:
-            a = Number(e, period=True)
+            a = Integer(e, period=True)
             parts.append(a)
         h, r = divmod(p, 100)
         if 10 < r < 20:
-            parts.append(Number(r))
+            parts.append(Integer(r))
         else:
             t, o = divmod(r, 10)
             if o > 0:
-                parts.append(Number(o))
+                parts.append(Integer(o))
             if t > 0:
-                parts.append(Number(10 * t))
+                parts.append(Integer(10 * t))
             if h > 0:
-                parts.append(Number(100))
-                parts.append(Number(h))
+                parts.append(Integer(100))
+                parts.append(Integer(h))
         _n //= 1000
         e += 1
     return list(reversed(parts))
 
 
-def number_to_decimal_str(n: Number, as_ordinal: bool = False) -> str:
+def number_to_decimal_str(n: Integer, as_ordinal: bool = False) -> str:
     """Convert number to decimal format string."""
     if as_ordinal:
         return int_to_decimal_ordinal(n)
     return str(int(n))
 
 
-def number_to_word_str(n: Number, as_ordinal: bool = False) -> str:
+def number_to_word_str(n: Integer, as_ordinal: bool = False) -> str:
     """Convert number to word format string."""
     parts = number_to_word_parts(n)
     if as_ordinal:
@@ -299,7 +299,7 @@ def number_to_word_str(n: Number, as_ordinal: bool = False) -> str:
 
 
 def format_number(
-    n: Number,
+    n: Integer,
     as_ordinal: bool = False,
     as_words: bool = False,
 ) -> str:
@@ -396,14 +396,14 @@ def nthalize(s: str, args: NthalizeArgs | None = None):
     """Nthalize throughout a string."""
     _args = _NthalizeArgs.new(args)
 
-    def map_n(n: Number) -> str:
+    def map_n(n: Integer) -> str:
         return format_number(n, _args.as_ordinal, _args.as_word)
 
-    def map_nw(n: Number | str) -> str:
+    def map_nw(n: Integer | str) -> str:
         match n:
             case str():
                 res = n
-            case Number():
+            case Integer():
                 res = map_n(n)
         logger.log(5, f"{n=} -> {res=}")
         return res

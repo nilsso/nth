@@ -1,4 +1,5 @@
 """Integer to cardinal/ordinal (or vice versa) lookup tables."""
+
 from __future__ import annotations
 
 import logging
@@ -7,8 +8,8 @@ import typing
 logger = logging.getLogger(__name__)
 
 
-class Number(int):
-    """Number abstraction."""
+class Integer(int):
+    """Integer helper."""
 
     ordinal: bool
     word: bool
@@ -36,7 +37,7 @@ class Number(int):
     ):
         """Construct."""
         del ordinal, word, period
-        return super(Number, cls).__new__(cls, n)
+        return super(Integer, cls).__new__(cls, n)
 
     def copy(
         self,
@@ -44,13 +45,13 @@ class Number(int):
         ordinal: bool | None = None,
         word: bool | None = None,
         period: bool | None = None,
-    ) -> Number:
+    ) -> Integer:
         """Copy this number (and optionally replace particular fields)."""
         n = n if n is not None else int(self)
         o = ordinal if ordinal is not None else self.ordinal
         w = word if word is not None else self.word
         p = period if period is not None else self.period
-        return Number(n, o, w, p)
+        return Integer(n, o, w, p)
 
     @property
     def hundred(self) -> bool:
@@ -101,28 +102,28 @@ class Number(int):
         match other:
             case int():
                 return int(self) == other
-            case Number():
+            case Integer():
                 return tuple(self) == tuple(other)
             case _:
                 return False
 
     @staticmethod
     def _op_validate(other: typing.Any):
-        if isinstance(other, Number):
+        if isinstance(other, Integer):
             return not other.period
         return isinstance(other, int)
 
-    def __add__(self, other: Number | int) -> Number:
+    def __add__(self, other: Integer | int) -> Integer:
         """Addition operator."""
         if self.period:
             raise ValueError(f"cannot add lhs={self}")
-        if not Number._op_validate(other):
+        if not Integer._op_validate(other):
             raise ValueError(f"cannot add rhs={self}")
         n = int(self) + int(other)
-        o = self.ordinal or isinstance(other, Number) and other.ordinal
+        o = self.ordinal or isinstance(other, Integer) and other.ordinal
         # TODO: what to do if differed __word?
-        return Number(n, o, self.word)
+        return Integer(n, o, self.word)
 
-    def __radd__(self, other: Number | int) -> Number:
+    def __radd__(self, other: Integer | int) -> Integer:
         """Reversed addition operator."""
         return self + other

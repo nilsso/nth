@@ -10,6 +10,7 @@ import nth
     [
         ("1 2 3 4 5", False),
         ("1 2 3rd 4 5", True),
+        ("20TH", True),
     ],
 )
 def test_contains_ordinal_decimal(s: str, expect: bool):

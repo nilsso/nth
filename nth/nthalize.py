@@ -14,6 +14,7 @@
     - cardinalize
     - ordinalize
 """
+
 from __future__ import annotations
 
 import enum
@@ -120,8 +121,8 @@ def is_number_word(s: str) -> bool:
 class Span(typing.NamedTuple):
     """Span tuple helper."""
 
-    l: int
-    r: int
+    left: int
+    right: int
 
     def to_slice(self) -> slice:
         """To slice object."""
@@ -374,15 +375,15 @@ class _NthalizeArgs(typing.NamedTuple):
                 as_ordinal = False
             case "ORDINAL":
                 as_ordinal = True
-            case _:
-                raise ValueError
+            case unreachable:  # pyright: ignore[reportUnnecessaryComparison]
+                raise ValueError(unreachable)
         match args.get("format"):
             case "DECIMAL" | None:
                 as_word = False
             case "WORD":
                 as_word = True
-            case _:
-                raise ValueError
+            case unreachable:  # pyright: ignore[reportUnnecessaryComparison]
+                raise ValueError(unreachable)
         word_behavior = args.get("word_behavior") or default_word_behavior()
         return _NthalizeArgs(
             as_ordinal,
@@ -410,13 +411,16 @@ def nthalize(s: str, args: NthalizeArgs | None = None):
     i = 0
     res: list[str] = []
     for span in iter_number_spans(s):
-        if (w := s[i : span.l]) != "":
+        if (w := s[i : span.left]) != "":
             res.append(w)
         w = span.slice(s)
         logger.debug(f'number span "{w}" {tuple(span)}')
         n_it = try_parse_numbers(w, _args.word_behavior)
-        res.extend(map(map_nw, intersperse(n_it, " ")))
-        i = span.r
+        a = intersperse(n_it, " ")
+        b = map(map_nw, a)
+        res.extend(b)
+        # res.extend(map(map_nw, intersperse(n_it, " ")))
+        i = span.right
     if (w := s[i:]) != "":
         res.append(w)
     return "".join(res)

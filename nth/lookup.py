@@ -1,4 +1,5 @@
 """String to number lookup."""
+
 import typing
 
 from .number import Number
@@ -50,8 +51,13 @@ def _reverse_mapping(d: dict[Number, str]) -> dict[str, Number]:
 
 
 def _make_map_raw(period: bool):
-    def _map_raw(p: tuple[int, str, str]):
-        n, c, o = p
+    def _map_raw(p: tuple[int, str, str] | tuple[int, str, str, set[str]]):
+        match p:
+            case (n, c, o):
+                aliases = {}
+            case (n, c, o, aliases):
+                ...
+        # TODO: Aliases
         _c = (Number(n, ordinal=False, word=False, period=period), c)
         _o = (Number(n, ordinal=True, word=False, period=period), o)
         return (_c, _o)
@@ -76,7 +82,7 @@ _PARTS_RAW = [
     (9, "NINE", "NINTH"),
     (10, "TEN", "TENTH"),
     (11, "ELEVEN", "ELEVENTH"),
-    (12, "TWELVE", "TWELFTH"),
+    (12, "TWELVE", "TWELFTH", {"TWELVTH"}),
     (13, "THIRTEEN", "THIRTEENTH"),
     (14, "FOURTEEN", "FOURTEENTH"),
     (15, "FIFTEEN", "FIFTEENTH"),

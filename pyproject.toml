@@ -16,7 +16,7 @@ python = "^3.12,<3.13"
 rich = "^13.7.1"
 # python-dotenv = "^0.20.0"
 # rich-argparse = {git = "https://github.com/hamdanal/rich-argparse", rev = "main"}
-tyro = "^0.8.4"
+tyro = "*"
 
 [tool.poetry.dev-dependencies]
 pytest = "^8.2.2"

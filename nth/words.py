@@ -1,4 +1,4 @@
-"""String to number lookup."""
+"""Cardinal and ordinal words and lookup tables."""
 
 from __future__ import annotations
 
@@ -116,6 +116,8 @@ N_TO_CARDINAL, CARDINAL_TO_N = make_lookups(
     ],
 )
 
+CARDINAL_WORDS = set(CARDINAL_TO_N.keys())
+
 N_TO_ORDINAL, ORDINAL_TO_N = make_lookups(
     ordinal=True,
     period=False,
@@ -163,6 +165,8 @@ N_TO_ORDINAL, ORDINAL_TO_N = make_lookups(
         (100, "HUNDREDTH"),
     ],
 )
+
+ORDINAL_WORDS = set(ORDINAL_TO_N.keys())
 
 N_TO_CARDINAL_PERIOD, CARDINAL_PERIOD_TO_N = make_lookups(
     ordinal=False,

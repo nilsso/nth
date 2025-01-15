@@ -1,16 +1,11 @@
 """Nth, utility for converting number formats within strings."""
-import logging
-import os
 
-from . import nthalize
+import logging
+
+from . import nthalize as nthalize
 
 logger = logging.getLogger(__name__)
-if (log_level_str := os.environ.get("NTH_LEVEL")) is not None:
-    if log_level_str.isdecimal():
-        log_level = int(log_level_str)
-    else:
-        log_level = logging.getLevelName(log_level_str)
-    logger.setLevel(log_level)
+logger.setLevel(logging.INFO)
 
 
 _nthalize = nthalize.nthalize

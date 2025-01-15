@@ -23,8 +23,8 @@ import re
 import typing
 
 from ._utils import intersperse
-from .lookup import lookup_word, try_lookup_number
 from .number import Integer
+from .words import lookup_word, try_lookup_number
 
 logger = logging.getLogger(__name__)
 

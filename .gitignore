@@ -1,16 +1,51 @@
+# NOTE: On Nils' computer this is a hard-link
+#
 # https://github.com/github/gitignore/blob/master/Python.gitignore
 
+# Misc files
+foo.py
+bar.py
+baz.py
+foo.sh
+bar.sh
+baz.sh
+.oc_data
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Excel temporary files
+~$*
+*:Zone.Identifier
+
+# Data
+data
+.data
+sources
+.sources
+documents
+.documents
+**/sources
+*.txt
+*.csv
+*.xlsx
+*.xls
+*.dat
+dump
+
+# Database
+*.dbs.bak
+
+# Byte-compiled/optimized/DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Data files
-*.csv
-
 # C extensions
 *.so
 
-# Distribution / packaging
+# Python distribution/packaging
 .Python
 build/
 develop-eggs/
@@ -55,10 +90,6 @@ coverage.xml
 .pytest_cache/
 cover/
 
-# cache
-.mypy_cache
-.dmypy.json
-
 # Translations
 *.mo
 *.pot
@@ -93,7 +124,7 @@ ipython_config.py
 # pyenv
 #   For a library or package, you might want to ignore these files since the code is
 #   intended to run in multiple environments; otherwise, check them in:
-.python-version
+# .python-version
 
 # pipenv
 #   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
@@ -102,7 +133,22 @@ ipython_config.py
 #   install all needed dependencies.
 #Pipfile.lock
 
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow
+# poetry
+#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
+#   This is especially recommended for binary packages to ensure reproducibility, and is more
+#   commonly ignored for libraries.
+#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
+#poetry.lock
+
+# pdm
+#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
+#pdm.lock
+#   pdm stores project-wide configurations in .pdm.toml, but it is recommended to not include it
+#   in version control.
+#   https://pdm.fming.dev/#use-with-ide
+.pdm.toml
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
 __pypackages__/
 
 # Celery stuff
@@ -114,37 +160,63 @@ celerybeat.pid
 
 # Environments
 .env
-.venv
+.env.*
+.*.env
 env/
-venv/
 ENV/
 env.bak/
+!.env.example
+!.env.test
+
+# Virtual environments
+.venv
+venv/
 venv.bak/
 
-# local testing files
-tmp/
+# Spyder project settings
+.spyderproject
+.spyproject
 
-# generated code
-src/prisma/http.py
-src/prisma/types.py
-src/prisma/enums.py
-src/prisma/client.py
-src/prisma/models.py
-src/prisma/fields.py
-src/prisma/actions.py
-src/prisma/builder.py
-src/prisma/partials.py
-src/prisma/engine/http.py
-src/prisma/engine/query.py
-src/prisma/engine/abstract.py
+# Rope project settings
+.ropeproject
 
-# debug files
-src/prisma/generator/debug-data.json
-src/prisma/generator/debug-params.json
+# mkdocs documentation
+/site
 
-# test cache files
-.tests_cache/
-*.db
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
-# OS files
-.DS_Store
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# PyCharm
+#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
+#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
+#  and can be added to the global gitignore or merged into this file.  For a more nuclear
+#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
+#.idea/
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Node
+node_modules
+
+# Web TypeScript/JavaScript output
+.output
+.vercel
+/.svelte-kit
+/build
+!src/lib
+
+# Some very specific project stuff
+!usaddress/street_address/parse/parts/

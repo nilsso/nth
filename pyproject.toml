@@ -1,22 +1,15 @@
-[tool.poetry]
+[project]
 name = "nth"
-version = "0.1.7"
-description = ""
-authors = ["Nils Olsson <nilso@enosis.net>"]
-
-# [tool.poetry.scripts]
-# nth = "nth.__main__:main"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "Nils Olsson", email = "nilso@enosis.net" }]
+requires-python = ">=3.13"
+dependencies = ["rich>=13.9.4", "tyro>=0.9.17"]
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.poetry.dependencies]
-python = "^3.12,<3.13"
-rich = "^13.7.1"
-# python-dotenv = "^0.20.0"
-# rich-argparse = {git = "https://github.com/hamdanal/rich-argparse", rev = "main"}
-tyro = "*"
-
-[tool.poetry.dev-dependencies]
-pytest = "^8.2.2"
+[dependency-groups]
+dev = ["pytest>=8.3.5"]
